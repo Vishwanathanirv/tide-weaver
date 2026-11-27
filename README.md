@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/kon.svg" width="100%" alt="Tide-Weaver. A plush orange lion in headphones and sunglasses panics, changes into a robed swordsman and slashes the hollows breaking out of the sky.">
-</p>
-
 # Tide-Weaver
 
 Surf endless twilight waves as a paper-winged light spirit. Hold to dive down the slopes, let go to fly off the crests. Every dive, ring and apex plays a note, so every run composes its own song.
