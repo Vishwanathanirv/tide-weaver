@@ -24,7 +24,14 @@ export interface SaveData {
   reducedMotion: boolean;
   hintSeen: boolean;
   bestEndless: number;
+  bestZen: number;
+  bestDistance: number;
   daily: { day: string; best: number } | null;
+  achievements: string[];
+  tutorialDone: boolean;
+  musicVolume: number;
+  notesVolume: number;
+  lightParticles: boolean;
 }
 
 export interface KV {
@@ -45,7 +52,14 @@ export function defaults(): SaveData {
     reducedMotion: typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)").matches : false,
     hintSeen: false,
     bestEndless: 0,
+    bestZen: 0,
+    bestDistance: 0,
     daily: null,
+    achievements: [],
+    tutorialDone: false,
+    musicVolume: 0.8,
+    notesVolume: 0.9,
+    lightParticles: false,
   };
 }
 
@@ -87,6 +101,13 @@ export function sanitize(raw: unknown): SaveData {
     reducedMotion: typeof r.reducedMotion === "boolean" ? r.reducedMotion : d.reducedMotion,
     hintSeen: r.hintSeen === true,
     bestEndless: num(r.bestEndless, 0),
+    bestZen: num(r.bestZen, 0),
+    bestDistance: num(r.bestDistance, 0),
+    achievements: Array.isArray(r.achievements) ? [...new Set(r.achievements.filter((a): a is string => typeof a === "string" && a.length < 32))].slice(0, 64) : [],
+    tutorialDone: r.tutorialDone === true || r.hintSeen === true,
+    musicVolume: Math.min(1, num(r.musicVolume, d.musicVolume)),
+    notesVolume: Math.min(1, num(r.notesVolume, d.notesVolume)),
+    lightParticles: r.lightParticles === true,
     daily: daily && typeof daily.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(daily.day) ? { day: daily.day, best: num(daily.best, 0) } : null,
   };
 }

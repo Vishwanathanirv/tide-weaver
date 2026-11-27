@@ -1,14 +1,16 @@
 import "./style.css";
 import { Score, INSTRUMENTS } from "./audio";
 import { currentSpeed, makeEvents, makeSpirit, step, STEP, type Spirit } from "./physics";
-import { Renderer, STYLES } from "./render";
+import { Renderer, STYLES, STYLE_COUNT } from "./render";
 import { hashString, utcDay } from "./rng";
+import { makeRun, makeRunEvents, updateRun, TIERS, type Mode, type Run } from "./rules";
 import { AURAS, exportCode, importCode, Vault, type Aura, type KV, type SaveData, type Stats } from "./save";
 import { Terrain, ZONES } from "./terrain";
 
-const DAILY_LENGTH = 150;
 const CYCLE = 60;
 const BLEND = 5;
+
+// ---------------------------------------------------------------- unlocks
 
 interface AuraInfo {
   name: string;
@@ -26,6 +28,30 @@ const AURA_INFO: Record<Aura, AuraInfo> = {
   prism: { name: "Prism", need: "Surf 25 km in total", done: (s) => s.distance >= 250000, progress: (s) => `${Math.min(25, s.distance / 10000).toFixed(1)}/25 km` },
 };
 
+interface Ctx {
+  run: Run;
+  s: Spirit;
+  clock: number;
+}
+
+const ACHIEVEMENTS: { id: string; name: string; need: string; test: (c: Ctx) => boolean }[] = [
+  { id: "first", name: "First light", need: "Land a perfect dive", test: (c) => c.s.perfects >= 1 },
+  { id: "streak5", name: "In the pocket", need: "5 perfect dives in a row", test: (c) => c.s.bestCombo >= 5 },
+  { id: "streak15", name: "Unbroken", need: "15 perfect dives in a row", test: (c) => c.s.bestCombo >= 15 },
+  { id: "rings10", name: "Ring keeper", need: "10 rings in one run", test: (c) => c.s.ringsTaken >= 10 },
+  { id: "km1", name: "Out to sea", need: "Surf 1 km in one run", test: (c) => c.s.distance >= 10000 },
+  { id: "km5", name: "Far shore", need: "Surf 5 km in one run", test: (c) => c.s.distance >= 50000 },
+  { id: "radiant", name: "Radiant", need: "Reach the Radiant tier", test: (c) => c.run.tier >= 2 },
+  { id: "transcendent", name: "Transcendent", need: "Reach the Transcendent tier", test: (c) => c.run.tier >= 3 },
+  { id: "sky", name: "Touch the sky", need: "Climb 2,000 high", test: (c) => c.s.maxAlt >= 2000 },
+  { id: "flow50k", name: "Deep flow", need: "50,000 flow in one run", test: (c) => c.run.score >= 50000 },
+  { id: "skies", name: "Five skies", need: "See all five skies in one run", test: (c) => c.clock >= CYCLE * (STYLE_COUNT - 1) + BLEND },
+  { id: "daily", name: "Same wave as everyone", need: "Ride today's wave for a minute", test: (c) => c.run.mode === "daily" && c.run.time >= 60 },
+  { id: "zen", name: "Still water", need: "Ten minutes in Zen", test: (c) => c.run.mode === "zen" && c.run.time >= 600 },
+];
+
+// ---------------------------------------------------------------- storage
+
 function storage(): KV | null {
   try {
     const k = "__tw";
@@ -41,9 +67,11 @@ const vault = new Vault(storage());
 let save: SaveData = vault.load();
 const score = new Score();
 score.setMuted(save.muted);
+score.setVolumes(save.musicVolume, save.notesVolume);
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
+renderer.fx.density = save.lightParticles ? 0.5 : 1;
 const ui = document.getElementById("ui") as HTMLDivElement;
 
 const icon = (d: string) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
@@ -59,16 +87,17 @@ ui.innerHTML = `
   <header class="hud">
     <div class="mark">Tide-Weaver</div>
     <div class="flow"><span id="flow">0</span><span class="unit">flow</span></div>
-    <div class="streak" id="streak" aria-live="polite"></div>
+    <div class="light" id="light" role="meter" aria-label="Light" aria-valuemin="0" aria-valuemax="100"><i id="light-fill"></i></div>
+    <div class="mult" id="mult"></div>
+    <div class="best" id="best"></div>
   </header>
   <nav class="controls" aria-label="Game">
-    <button id="b-sound" aria-label="Sound" title="Sound (M)">${icon(save.muted ? ICON.mute : ICON.sound)}</button>
-    <button id="b-aura" aria-label="Auras" title="Auras">${icon(ICON.aura)}</button>
-    <button id="b-daily" aria-label="Today's wave" title="Today's wave">${icon(ICON.sun)}</button>
-    <button id="b-pause" aria-label="Pause" title="Pause (P)">${icon(ICON.pause)}</button>
+    <button id="b-sound" aria-label="Sound" data-tip="Sound · M">${icon(save.muted ? ICON.mute : ICON.sound)}</button>
+    <button id="b-aura" aria-label="Auras and milestones" data-tip="Auras">${icon(ICON.aura)}</button>
+    <button id="b-daily" aria-label="Today's wave" data-tip="Today's wave">${icon(ICON.sun)}</button>
+    <button id="b-pause" aria-label="Pause" data-tip="Pause · P">${icon(ICON.pause)}</button>
   </nav>
-  <div class="timer" id="timer" hidden><div id="timer-fill"></div></div>
-  <p class="hint" id="hint" hidden>Hold to dive · let go to fly</p>
+  <p class="hint" id="hint" hidden></p>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <a class="tag" href="./" aria-label="coralctrl">a coralctrl game</a>
   <div class="scrim" id="scrim" hidden>
@@ -78,10 +107,11 @@ ui.innerHTML = `
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const flowEl = $("flow");
-const streakEl = $("streak");
+const lightEl = $("light");
+const lightFill = $("light-fill");
+const multEl = $("mult");
+const bestEl = $("best");
 const hintEl = $("hint");
-const timerEl = $("timer");
-const timerFill = $("timer-fill");
 const scrim = $("scrim");
 const panel = $("panel");
 const toastEl = $("toast");
@@ -90,39 +120,59 @@ const toastEl = $("toast");
 
 const params = new URLSearchParams(location.search);
 const today = utcDay();
-type Mode = "endless" | "daily";
-let mode: Mode = params.get("d") === today ? "daily" : "endless";
+let mode: Mode = params.get("d") === today ? "daily" : params.get("zen") === "1" ? "zen" : "journey";
 const cleanSeed = (s: string | null) => (s && /^[a-z0-9-]{1,24}$/i.test(s) ? s.toLowerCase() : null);
 let seedLabel = cleanSeed(params.get("seed")) ?? Math.random().toString(36).slice(2, 8);
 
 let terrain!: Terrain;
 let spirit!: Spirit;
+let run!: Run;
 const ev = makeEvents();
+const rev = makeRunEvents();
 let clock = 0;
-let runTime = 0;
-let ended = false;
 let paused = false;
+let over = false;
+let ending = -1;
+let endShownAt = 0;
 let lastZone = -1;
 let lastStyle = -1;
-let takeoffs = 0;
-const weights = [1, 0, 0, 0];
+let passedBest = false;
+let wasHolding = false;
+let peakTier = 0;
+const weights = new Array(STYLE_COUNT).fill(0);
+weights[0] = 1;
+
+// Contextual first-run tips: one short line at a time, never a wall of text.
+let tip = save.tutorialDone ? -1 : 0;
+let tipHold = 0;
+let tipTimer = 0;
+const TIPS = ["Hold on a downhill to dive", "Let go at the bottom to fly", "Land along a downhill for a Perfect", "Perfect dives and rings refill your light"];
+
+function bestFlow(): number {
+  if (mode === "zen") return save.bestZen;
+  if (mode === "daily") return save.daily?.day === today ? save.daily.best : 0;
+  return save.bestEndless;
+}
 
 function newRun(): void {
   const seed = mode === "daily" ? hashString("daily:" + today) : hashString("seed:" + seedLabel);
   terrain = new Terrain(seed);
   spirit = makeSpirit(terrain);
+  run = makeRun(mode, tip !== -1);
   clock = 0;
-  runTime = 0;
-  ended = false;
+  over = false;
+  ending = -1;
   lastZone = -1;
   lastStyle = -1;
+  passedBest = false;
+  peakTier = 0;
   score.song.length = 0;
   renderer.resetTrail();
-  timerEl.hidden = mode !== "daily";
+  lightEl.hidden = mode === "zen";
   save.stats.runs++;
   persist();
   const url = new URL(location.href);
-  url.search = mode === "daily" ? `?d=${today}` : `?seed=${seedLabel}`;
+  url.search = mode === "daily" ? `?d=${today}` : `?seed=${seedLabel}${mode === "zen" ? "&zen=1" : ""}`;
   history.replaceState(null, "", url);
 }
 
@@ -135,11 +185,12 @@ function persist(): void {
 const pointers = new Set<number>();
 const keys = new Set<string>();
 const HOLD_KEYS = new Set(["Space", "ArrowDown", "KeyS", "KeyW", "ArrowUp", "Enter"]);
-const holding = () => pointers.size > 0 || keys.size > 0;
+const holding = () => !over && ending < 0 && (pointers.size > 0 || keys.size > 0);
 
 function wake(): void {
   score.unlock();
   score.setMuted(save.muted);
+  score.setVolumes(save.musicVolume, save.notesVolume);
 }
 
 canvas.addEventListener("pointerdown", (e) => {
@@ -161,6 +212,12 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 window.addEventListener("keydown", (e) => {
   const el = e.target as HTMLElement;
   if (el.closest("input, textarea")) return;
+  // Game over: Space or Enter rides again straight away.
+  if (over && !scrim.hidden && (e.code === "Space" || e.code === "Enter")) {
+    e.preventDefault();
+    if (!e.repeat && performance.now() - endShownAt > 500) rideAgain();
+    return;
+  }
   if (HOLD_KEYS.has(e.code) && !paused) {
     if (el.closest("button") && (e.code === "Space" || e.code === "Enter")) return;
     wake();
@@ -171,8 +228,9 @@ window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (e.code === "Escape" || e.code === "KeyP") {
     e.preventDefault();
-    if (paused && !ended) resume();
-    else if (!paused) openPause();
+    if (over) return;
+    if (paused) resume();
+    else openPause();
   } else if (e.code === "KeyM") toggleSound();
   else if (e.code === "KeyR") document.body.classList.toggle("clean");
 });
@@ -180,7 +238,7 @@ window.addEventListener("keyup", (e) => keys.delete(e.code));
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    if (!paused) openPause();
+    if (!paused && !over) openPause();
     score.suspend();
     persist();
   }
@@ -189,13 +247,13 @@ window.addEventListener("pagehide", persist);
 
 // ---------------------------------------------------------------- panels
 
+let toastTimer = 0;
 function toast(text: string): void {
   toastEl.textContent = text;
   toastEl.classList.add("on");
-  window.clearTimeout(toast.t);
-  toast.t = window.setTimeout(() => toastEl.classList.remove("on"), 2600);
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => toastEl.classList.remove("on"), 2600);
 }
-toast.t = 0;
 
 function openPanel(html: string): void {
   paused = true;
@@ -203,19 +261,19 @@ function openPanel(html: string): void {
   keys.clear();
   panel.innerHTML = html;
   scrim.hidden = false;
-  panel.querySelector<HTMLElement>("button, textarea")?.focus({ preventScroll: true });
+  panel.querySelector<HTMLElement>("[data-autofocus], button, textarea, input")?.focus({ preventScroll: true });
 }
 
 function resume(): void {
   scrim.hidden = true;
   paused = false;
   score.resume();
-  canvas.focus?.();
 }
 
 const fmt = (n: number) => Math.floor(n).toLocaleString("en");
 const SONG = "▁▂▃▄▅▆▇█";
 const songStrip = () => score.song.map((d) => SONG[Math.min(7, Math.floor((d / 15) * 8))]).join("") || "▁";
+const modeName = () => (mode === "daily" ? `Today's wave · ${today}` : mode === "zen" ? `Zen · wave ${seedLabel}` : `Journey · wave ${seedLabel}`);
 
 function shareUrl(): string {
   const u = new URL(location.href);
@@ -224,8 +282,7 @@ function shareUrl(): string {
 }
 
 function shareText(): string {
-  const head = mode === "daily" ? `Tide-Weaver · today's wave ${today}` : `Tide-Weaver · wave ${seedLabel}`;
-  return `${head}\n${fmt(spirit.flow)} flow · streak ×${spirit.bestCombo} · ${spirit.ringsTaken} rings\n${songStrip()}\n${shareUrl()}`;
+  return `Tide-Weaver · ${modeName()}\n${fmt(run.score)} flow · streak ×${spirit.bestCombo} · ${(spirit.distance / 10000).toFixed(2)} km\n${songStrip()}\n${shareUrl()}`;
 }
 
 async function copy(text: string): Promise<boolean> {
@@ -257,7 +314,7 @@ async function share(): Promise<void> {
       await navigator.share({ text });
       return;
     } catch {
-      /* cancelled: fall back to copying */
+      /* cancelled: copy instead */
     }
   }
   toast((await copy(text)) ? "Copied. Paste it anywhere." : "Couldn't copy on this browser.");
@@ -279,7 +336,7 @@ function postcard(): void {
   x.font = `500 ${22 * s}px ui-serif, Georgia, serif`;
   x.fillText("TIDE-WEAVER", 36 * s, c.height - 92 * s);
   x.font = `700 ${44 * s}px ui-rounded, system-ui, sans-serif`;
-  x.fillText(`${fmt(spirit.flow)} flow`, 36 * s, c.height - 44 * s);
+  x.fillText(`${fmt(run.score)} flow`, 36 * s, c.height - 44 * s);
   x.font = `500 ${16 * s}px ui-rounded, system-ui, sans-serif`;
   x.globalAlpha = 0.8;
   x.fillText(`${songStrip()}   ${shareUrl().replace(/^https?:\/\//, "")}`, 36 * s, c.height - 16 * s);
@@ -293,32 +350,34 @@ function postcard(): void {
   }, "image/png");
 }
 
-function stat(label: string, value: string): string {
-  return `<div class="stat"><span>${label}</span><b>${value}</b></div>`;
-}
+const stat = (label: string, value: string) => `<div class="stat"><span>${label}</span><b>${value}</b></div>`;
 
 function runStats(): string {
-  return `<div class="stats">${stat("Flow", fmt(spirit.flow))}${stat("Best streak", "×" + spirit.bestCombo)}${stat("Perfect dives", String(spirit.perfects))}${stat("Rings", String(spirit.ringsTaken))}${stat("Distance", (spirit.distance / 10000).toFixed(2) + " km")}${stat("Highest", fmt(spirit.maxAlt))}</div>`;
+  return `<div class="stats">${stat("Best streak", "×" + spirit.bestCombo)}${stat("Perfect dives", String(spirit.perfects))}${stat("Rings", String(spirit.ringsTaken))}${stat("Distance", (spirit.distance / 10000).toFixed(2) + " km")}${stat("Highest", fmt(spirit.maxAlt))}${stat("Best tier", TIERS[peakTier])}</div>`;
+}
+
+function modeButton(): string {
+  return mode === "zen" ? `<button data-act="journey">Journey mode</button>` : `<button data-act="zen">Zen mode</button>`;
 }
 
 function openPause(): void {
-  if (mode === "endless") save.bestEndless = Math.max(save.bestEndless, spirit.flow);
-  persist();
   openPanel(`
-    <h2 id="panel-title">${mode === "daily" ? `Today's wave · ${today}` : `Wave ${seedLabel}`}</h2>
+    <h2 id="panel-title">${modeName()}</h2>
+    <div class="final"><b>${fmt(run.score)}</b><span>flow · best ${fmt(Math.max(bestFlow(), run.score))}</span></div>
     ${runStats()}
     <p class="song" aria-label="Your run as notes">${songStrip()}</p>
     <div class="row">
-      <button class="primary" data-act="resume">Keep surfing</button>
-      <button data-act="share">Share run</button>
-      <button data-act="postcard">Save postcard</button>
+      <button class="primary" data-act="resume" data-autofocus>Keep surfing</button>
+      <button data-act="again">Restart</button>
+      ${modeButton()}
     </div>
     <div class="row">
-      <button data-act="new">${mode === "daily" ? "Endless waves" : "New wave"}</button>
-      <button data-act="auras">Auras</button>
+      <button data-act="share">Share run</button>
+      <button data-act="postcard">Save postcard</button>
+      <button data-act="auras">Auras & milestones</button>
       <button data-act="settings">Settings</button>
     </div>
-    <p class="small">Best endless flow ${fmt(save.bestEndless)}${save.daily?.day === today ? ` · today's best ${fmt(save.daily.best)}` : ""}</p>
+    <p class="small">${mode === "zen" ? "Zen: no light to keep, the waves go on forever." : "Perfect dives and rings refill your light. Keep it burning."}</p>
   `);
 }
 
@@ -331,42 +390,117 @@ function openAuras(): void {
       <i class="swatch sw-${a}" aria-hidden="true"></i><b>${info.name}</b><span>${have ? (on ? "Wearing" : "Wear") : `${info.need} · ${info.progress(save.stats)}`}</span>
     </button>`;
   }).join("");
-  openPanel(`<h2 id="panel-title">Auras</h2><div class="auras">${cards}</div><div class="row"><button class="primary" data-act="back">Back</button></div>`);
+  const done = ACHIEVEMENTS.filter((a) => save.achievements.includes(a.id)).length;
+  const ach = ACHIEVEMENTS.map((a) => {
+    const got = save.achievements.includes(a.id);
+    return `<li class="${got ? "got" : ""}"><b>${got ? "✦" : "·"} ${a.name}</b><span>${a.need}</span></li>`;
+  }).join("");
+  openPanel(`
+    <h2 id="panel-title">Auras</h2>
+    <div class="auras">${cards}</div>
+    <h3>Milestones · ${done}/${ACHIEVEMENTS.length}</h3>
+    <ul class="ach">${ach}</ul>
+    <div class="row"><button class="primary" data-act="back" data-autofocus>Back</button></div>
+  `);
 }
 
 function openSettings(): void {
   openPanel(`
     <h2 id="panel-title">Settings</h2>
+    <h3>Sound</h3>
+    <div class="row"><button data-act="sound" aria-pressed="${!save.muted}">Sound ${save.muted ? "off" : "on"}</button></div>
+    <label class="slider">Music <input type="range" id="vol-music" min="0" max="100" value="${Math.round(save.musicVolume * 100)}"></label>
+    <label class="slider">Notes and effects <input type="range" id="vol-notes" min="0" max="100" value="${Math.round(save.notesVolume * 100)}"></label>
+    <h3>Visuals</h3>
     <div class="row">
-      <button data-act="sound" aria-pressed="${!save.muted}">Sound ${save.muted ? "off" : "on"}</button>
       <button data-act="motion" aria-pressed="${save.reducedMotion}">Calm motion ${save.reducedMotion ? "on" : "off"}</button>
+      <button data-act="particles" aria-pressed="${save.lightParticles}">Particles ${save.lightParticles ? "light" : "full"}</button>
+      <button data-act="tips">Show tips again</button>
     </div>
+    <h3>Progress</h3>
     <label class="field">Save code<textarea id="code" rows="3" spellcheck="false" placeholder="Paste a save code here to load it"></textarea></label>
     <div class="row">
       <button data-act="export">Copy my save code</button>
       <button data-act="import">Load pasted code</button>
     </div>
-    <p class="small">Keys: hold Space or tap to dive · P pause · M sound · R hide the interface for clean recordings.</p>
-    <div class="row"><button class="primary" data-act="back">Back</button></div>
+    <p class="small">Hold Space or touch to dive · P pause · M sound · R hide the interface for clean recordings</p>
+    <div class="row"><button class="primary" data-act="back" data-autofocus>Back</button></div>
+  `);
+  const music = panel.querySelector<HTMLInputElement>("#vol-music")!;
+  const notes = panel.querySelector<HTMLInputElement>("#vol-notes")!;
+  const apply = () => {
+    save.musicVolume = Number(music.value) / 100;
+    save.notesVolume = Number(notes.value) / 100;
+    wake();
+    persist();
+  };
+  music.addEventListener("input", apply);
+  notes.addEventListener("input", apply);
+  notes.addEventListener("change", () => score.note(9, 1, 0.6));
+}
+
+/** Saves the run's flow and distance if they beat the records; true if a previous best fell. */
+function recordBest(): boolean {
+  let isNew = false;
+  if (mode === "zen") {
+    if (run.score > save.bestZen) {
+      isNew = save.bestZen > 0;
+      save.bestZen = run.score;
+    }
+  } else if (mode === "daily") {
+    const prev = save.daily?.day === today ? save.daily.best : 0;
+    if (run.score > prev) {
+      isNew = prev > 0;
+      save.daily = { day: today, best: run.score };
+    }
+  } else {
+    if (run.score > save.bestEndless) {
+      isNew = save.bestEndless > 0;
+      save.bestEndless = run.score;
+    }
+    if (spirit.distance > save.bestDistance) save.bestDistance = spirit.distance;
+  }
+  persist();
+  return isNew;
+}
+
+function openGameOver(): void {
+  const prevBest = bestFlow();
+  const isNew = recordBest();
+  endShownAt = performance.now();
+  openPanel(`
+    <h2 id="panel-title">${mode === "daily" ? `Today's wave · ${today}` : "Your light faded"}</h2>
+    <p class="cause">${run.cause}</p>
+    <div class="final"><b>${fmt(run.score)}</b><span>flow${isNew ? ` · <strong class="new">new best</strong>` : ` · best ${fmt(Math.max(prevBest, run.score))}`}</span></div>
+    ${runStats()}
+    <p class="song" aria-label="Your run as notes">${songStrip()}</p>
+    <div class="row">
+      <button class="primary big" data-act="again" data-autofocus>Ride again <kbd>Space</kbd></button>
+      <button data-act="share">Share</button>
+      <button data-act="postcard">Postcard</button>
+    </div>
+    <div class="row">
+      ${mode === "daily" ? `<button data-act="journey">Journey mode</button>` : `<button data-act="daily">Today's wave</button>`}
+      <button data-act="zen">Zen mode</button>
+      <button data-act="auras">Auras & milestones</button>
+    </div>
   `);
 }
 
-function endDaily(): void {
-  ended = true;
-  const prev = save.daily?.day === today ? save.daily.best : 0;
-  save.daily = { day: today, best: Math.max(prev, spirit.flow) };
-  persist();
-  openPanel(`
-    <h2 id="panel-title">Today's wave · ${today}</h2>
-    ${runStats()}
-    <p class="song" aria-label="Your run as notes">${songStrip()}</p>
-    <p class="small">${spirit.flow > prev ? (prev ? "A new best for today." : "Your first ride of today's wave.") : `Today's best is ${fmt(prev)}.`} Everyone gets the same wave until midnight UTC.</p>
-    <div class="row">
-      <button class="primary" data-act="share">Share result</button>
-      <button data-act="again">Ride it again</button>
-      <button data-act="new">Endless waves</button>
-    </div>
-  `);
+function rideAgain(): void {
+  if (mode === "zen" || mode === "journey") recordBest();
+  if (mode === "journey" && !cleanSeed(params.get("seed"))) seedLabel = Math.random().toString(36).slice(2, 8);
+  newRun();
+  resume();
+}
+
+function switchMode(m: Mode): void {
+  if (!over) recordBest();
+  mode = m;
+  if (m !== "daily") seedLabel = Math.random().toString(36).slice(2, 8);
+  newRun();
+  resume();
+  toast(m === "zen" ? "Zen: endless, no light to keep" : m === "daily" ? "Today's wave: the same for everyone" : "Journey: keep your light burning");
 }
 
 panel.addEventListener("click", async (e) => {
@@ -383,22 +517,23 @@ panel.addEventListener("click", async (e) => {
     case "resume":
       resume();
       break;
+    case "again":
+      rideAgain();
+      break;
+    case "zen":
+      switchMode("zen");
+      break;
+    case "journey":
+      switchMode("journey");
+      break;
+    case "daily":
+      switchMode("daily");
+      break;
     case "share":
       await share();
       break;
     case "postcard":
       postcard();
-      break;
-    case "new":
-      if (mode === "endless") save.bestEndless = Math.max(save.bestEndless, spirit.flow);
-      mode = "endless";
-      seedLabel = Math.random().toString(36).slice(2, 8);
-      newRun();
-      resume();
-      break;
-    case "again":
-      newRun();
-      resume();
       break;
     case "auras":
       openAuras();
@@ -407,7 +542,7 @@ panel.addEventListener("click", async (e) => {
       openSettings();
       break;
     case "back":
-      if (ended) endDaily();
+      if (over) openGameOver();
       else openPause();
       break;
     case "sound":
@@ -418,6 +553,19 @@ panel.addEventListener("click", async (e) => {
       save.reducedMotion = !save.reducedMotion;
       persist();
       openSettings();
+      break;
+    case "particles":
+      save.lightParticles = !save.lightParticles;
+      renderer.fx.density = save.lightParticles ? 0.5 : 1;
+      persist();
+      openSettings();
+      break;
+    case "tips":
+      save.tutorialDone = false;
+      tip = 0;
+      tipHold = 0;
+      persist();
+      toast("Tips will show again.");
       break;
     case "export":
       toast((await copy(exportCode(save))) ? "Save code copied." : "Couldn't copy on this browser.");
@@ -432,6 +580,8 @@ panel.addEventListener("click", async (e) => {
       save = data;
       persist();
       score.setMuted(save.muted);
+      score.setVolumes(save.musicVolume, save.notesVolume);
+      renderer.fx.density = save.lightParticles ? 0.5 : 1;
       syncSoundIcon();
       toast("Save loaded.");
       openSettings();
@@ -442,7 +592,7 @@ panel.addEventListener("click", async (e) => {
 
 scrim.addEventListener("keydown", (e) => {
   if (e.key !== "Tab") return;
-  const f = [...panel.querySelectorAll<HTMLElement>("button:not(:disabled), textarea")];
+  const f = [...panel.querySelectorAll<HTMLElement>("button:not(:disabled), textarea, input")];
   if (!f.length) return;
   const first = f[0];
   const last = f[f.length - 1];
@@ -471,14 +621,10 @@ function toggleSound(): void {
 
 $("b-sound").addEventListener("click", toggleSound);
 $("b-aura").addEventListener("click", () => openAuras());
-$("b-pause").addEventListener("click", () => openPause());
+$("b-pause").addEventListener("click", () => (over ? openGameOver() : openPause()));
 $("b-daily").addEventListener("click", () => {
   wake();
-  if (mode === "endless") save.bestEndless = Math.max(save.bestEndless, spirit.flow);
-  mode = "daily";
-  newRun();
-  toast("Today's wave: 2½ minutes, the same for everyone");
-  if (paused) resume();
+  switchMode("daily");
 });
 syncSoundIcon();
 
@@ -490,80 +636,101 @@ function unlockAuras(): void {
     save.unlocked.push(a);
     persist();
     toast(`New aura: ${AURA_INFO[a].name}`);
-    score.note(14, 1, 0.8);
-    score.note(12, 1, 0.6, 1);
+    score.milestone();
   }
 }
 
-function smooth(t: number): number {
-  return t * t * (3 - 2 * t);
+function checkAchievements(): void {
+  const c: Ctx = { run, s: spirit, clock };
+  for (const a of ACHIEVEMENTS) {
+    if (save.achievements.includes(a.id) || !a.test(c)) continue;
+    save.achievements.push(a.id);
+    persist();
+    toast(`✦ ${a.name}`);
+    score.milestone();
+  }
 }
 
+const smooth = (t: number) => t * t * (3 - 2 * t);
+
 function updateWeights(): number {
-  const c = Math.floor(clock / CYCLE) % 4;
+  const c = Math.floor(clock / CYCLE) % STYLE_COUNT;
   const local = clock % CYCLE;
   weights.fill(0);
   if (local > CYCLE - BLEND) {
     const k = smooth((local - (CYCLE - BLEND)) / BLEND);
     weights[c] = 1 - k;
-    weights[(c + 1) % 4] = k;
-    return k > 0.5 ? (c + 1) % 4 : c;
+    weights[(c + 1) % STYLE_COUNT] = k;
+    return k > 0.5 ? (c + 1) % STYLE_COUNT : c;
   }
   weights[c] = 1;
   return c;
 }
 
-let hintTimer = 0;
-function tick(): void {
+function tick(dt: number): void {
   const before = spirit.x;
-  step(spirit, terrain, holding(), ev);
-  clock += STEP;
-  runTime += STEP;
+  const hold = holding();
+  if (hold && !wasHolding) score.whoosh(currentSpeed(spirit) / 1600);
+  wasHolding = hold;
+  step(spirit, terrain, hold, ev, dt);
+  const dx = spirit.x - before;
+  updateRun(run, spirit, ev, dx, dt, rev);
+  clock += dt;
   renderer.pushTrail(spirit.x, spirit.y);
-  save.stats.distance += spirit.x - before;
+  save.stats.distance += dx;
+  if (run.tier > peakTier) peakTier = run.tier;
 
   const zone = terrain.zone(spirit.x);
-  const inst = zone;
   if (zone !== lastZone) {
     if (lastZone !== -1) renderer.showBanner(`${ZONES[zone]} · ${INSTRUMENTS[zone]}`);
     lastZone = zone;
     renderer.setZone(zone);
   }
-  const alt = spirit.y - terrain.height(spirit.x);
-  if (ev.takeoff) {
-    takeoffs++;
-    score.note(2 + Math.min(4, currentSpeed(spirit) / 500), inst, 0.3);
-  }
+  const ground = terrain.height(spirit.x);
+  const alt = spirit.y - ground;
+
+  if (ev.takeoff) score.note(2 + Math.min(4, currentSpeed(spirit) / 500), zone, 0.3);
   if (ev.landing === "perfect") {
     const d = 4 + Math.min(8, spirit.combo);
-    score.note(d, inst, 0.9);
-    score.note(d + 2, inst, 0.7, 1);
-    score.note(d + 4, inst, 0.55, 2);
+    score.note(d, zone, 0.9);
+    score.note(d + 2, zone, 0.7, 1);
+    score.note(d + 4, zone, 0.55, 2);
     save.stats.perfects++;
     if (spirit.combo > save.stats.bestStreak) save.stats.bestStreak = spirit.combo;
-    renderer.fx.burst(spirit.x, spirit.y, 26, 420, [255, 236, 190], 0, 0.9);
+    renderer.fx.burst(spirit.x, spirit.y, 26 + Math.min(20, spirit.combo * 2), 420, [255, 236, 190], 0, 0.9);
+    renderer.pulse(spirit.x, ground, 0.55 + Math.min(0.6, spirit.combo * 0.08));
     renderer.popup(spirit.combo > 1 ? `Perfect ×${spirit.combo}` : "Perfect", spirit.x, spirit.y);
-    renderer.kick(0.25);
-    if (!save.hintSeen) {
-      save.hintSeen = true;
-      persist();
-    }
+    renderer.kick(0.2 + Math.min(0.2, spirit.combo * 0.02));
     unlockAuras();
   } else if (ev.landing === "good") {
-    score.note(3, inst, 0.35);
+    score.note(3, zone, 0.35);
   } else if (ev.landing === "rough") {
     score.splash();
     renderer.fx.spawn(spirit.x, spirit.y, 0, 0, 0.8, 1, [210, 235, 255], 1);
     renderer.fx.burst(spirit.x, spirit.y, 8, 220, [200, 230, 255], 0, 0.6);
   }
-  if (ev.apex) score.note(Math.min(14, 2 + alt / 130), inst, 0.5);
+  if (ev.apex) score.note(Math.min(14, 2 + alt / 130), zone, 0.5);
   if (ev.ring) {
     score.note(12, 1, 0.9);
     score.note(14, 1, 0.7, 1);
     save.stats.rings += ev.ring;
     renderer.fx.burst(ev.ringX, ev.ringY, 34, 380, [255, 214, 140], 0, 1);
-    renderer.popup("+250", ev.ringX, ev.ringY);
+    renderer.popup(`+${fmt(250 * run.mult)}`, ev.ringX, ev.ringY);
     unlockAuras();
+  }
+  if (rev.tierUp) {
+    renderer.popup(TIERS[run.tier], spirit.x, spirit.y + 60, true);
+    renderer.pulse(spirit.x, ground, 0.9);
+    score.milestone();
+  }
+  if (rev.km) {
+    renderer.showBanner(`${rev.km} km`);
+    score.milestone();
+  }
+  if (mode === "journey" && !passedBest && save.bestDistance > 2000 && spirit.distance > save.bestDistance) {
+    passedBest = true;
+    renderer.popup("Past your best", spirit.x, spirit.y + 40, true);
+    score.milestone();
   }
   if (alt > save.stats.maxAltitude) {
     save.stats.maxAltitude = alt;
@@ -571,7 +738,29 @@ function tick(): void {
   }
   if (save.stats.distance >= 250000 && !save.unlocked.includes("prism")) unlockAuras();
 
-  if (mode === "daily" && runTime >= DAILY_LENGTH) endDaily();
+  // Tips advance on what the player actually does.
+  if (tip === 0) {
+    if (hold && spirit.grounded && terrain.slope(spirit.x) < 0) tipHold += dt;
+    if (tipHold > 0.6) tip = 1;
+  } else if (tip === 1 && !spirit.grounded && alt > 80) tip = 2;
+  else if (tip === 2 && ev.landing === "perfect") {
+    tip = mode === "zen" ? 4 : 3;
+    tipTimer = 0;
+  } else if (tip === 3) {
+    tipTimer += dt;
+    if (tipTimer > 4.5) tip = 4;
+  }
+  if (tip === 4) {
+    tip = -1;
+    save.tutorialDone = true;
+    run.gentle = false;
+    persist();
+  }
+
+  if (rev.ended) {
+    ending = 0;
+    score.fade();
+  }
 }
 
 // ---------------------------------------------------------------- frame loop
@@ -582,24 +771,36 @@ function resize(): void {
 window.addEventListener("resize", resize);
 resize();
 newRun();
-// ?at=SECONDS starts the world clock later: for previewing styles and recording clips.
+// ?at=SECONDS starts the world clock later: for previewing skies and recording clips.
 const startAt = Number(params.get("at"));
-if (mode === "endless" && startAt > 0 && startAt < 240) clock = startAt;
+if (mode !== "daily" && startAt > 0 && startAt < 400) clock = startAt;
 
 let last = performance.now();
 let acc = 0;
 let saveClock = 0;
+let achClock = 0;
 let shownFlow = -1;
-let shownCombo = -1;
+let shownMult = "";
+let shownBest = "";
 
 function frame(now: number): void {
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;
   if (!paused) {
-    acc += dt;
+    // After the light goes out, time slows to a stop before the summary.
+    let scaleT = 1;
+    if (ending >= 0) {
+      ending += dt;
+      scaleT = Math.max(0.15, 1 - ending / 1.3);
+      if (ending > 1.4 && !over) {
+        over = true;
+        openGameOver();
+      }
+    }
+    acc += dt * scaleT;
     while (acc >= STEP && !paused) {
-      tick();
+      tick(STEP);
       acc -= STEP;
     }
     saveClock += dt;
@@ -607,7 +808,11 @@ function frame(now: number): void {
       saveClock = 0;
       persist();
     }
-    hintTimer += dt;
+    achClock += dt;
+    if (achClock > 1) {
+      achClock = 0;
+      checkAchievements();
+    }
   }
   const style = updateWeights();
   if (style !== lastStyle) {
@@ -615,20 +820,47 @@ function frame(now: number): void {
     lastStyle = style;
   }
   const speed = currentSpeed(spirit);
-  score.update(paused ? 0 : speed, style, weights[3], !spirit.grounded);
-  renderer.draw({ spirit, alpha: paused ? 1 : acc / STEP, terrain, weights, time: clock, dt: paused ? 0 : dt, aura: save.aura, holding: holding(), reducedMotion: save.reducedMotion, speed });
+  score.update(paused ? 0 : speed, style, weights[4], !spirit.grounded);
+  renderer.draw({
+    spirit,
+    alpha: paused ? 1 : acc / STEP,
+    terrain,
+    weights,
+    time: clock,
+    dt: paused ? 0 : dt,
+    aura: save.aura,
+    holding: holding(),
+    reducedMotion: save.reducedMotion,
+    speed,
+    light: mode === "zen" ? 1 : run.light,
+    tier: run.tier,
+    bestX: mode === "journey" && save.bestDistance > 2000 ? save.bestDistance : -1,
+  });
 
-  const f = Math.floor(spirit.flow);
+  const f = Math.floor(run.score);
   if (f !== shownFlow) {
     shownFlow = f;
     flowEl.textContent = fmt(f);
   }
-  if (spirit.combo !== shownCombo) {
-    shownCombo = spirit.combo;
-    streakEl.textContent = spirit.combo >= 2 ? `streak ×${spirit.combo}` : "";
+  const m = `×${run.mult.toFixed(1)} · ${TIERS[run.tier]}${spirit.combo >= 2 ? ` · streak ${spirit.combo}` : ""}`;
+  if (m !== shownMult) {
+    shownMult = m;
+    multEl.textContent = m;
+    multEl.dataset.tier = String(run.tier);
   }
-  hintEl.hidden = save.hintSeen || takeoffs > 4 || hintTimer > 25;
-  if (mode === "daily") timerFill.style.transform = `scaleX(${Math.min(1, runTime / DAILY_LENGTH)})`;
+  const b = `best ${fmt(Math.max(bestFlow(), run.score))}`;
+  if (b !== shownBest) {
+    shownBest = b;
+    bestEl.textContent = b;
+  }
+  if (mode !== "zen") {
+    lightFill.style.transform = `scaleX(${run.light})`;
+    lightEl.classList.toggle("low", run.light < 0.25);
+    lightEl.setAttribute("aria-valuenow", String(Math.round(run.light * 100)));
+  }
+  const tipText = tip >= 0 && tip < TIPS.length ? TIPS[tip] : "";
+  if (hintEl.textContent !== tipText) hintEl.textContent = tipText;
+  hintEl.hidden = !tipText || paused;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

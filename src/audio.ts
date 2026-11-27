@@ -8,7 +8,8 @@ const PENTA = [0, 2, 4, 7, 9];
 const ROOT = 62; // D4: the melody stays in D major pentatonic, so any note fits any chord.
 const CHORDS = [
   [50, 57, 66], // D  : twilight
-  [47, 54, 62], // Bm : midnight
+  [47, 54, 62], // Bm : moonlit
+  [45, 52, 59], // A  : aurora
   [43, 50, 59], // G  : dawn
   [40, 47, 55], // Em : rain
 ];
@@ -26,6 +27,9 @@ export function degreeToMidi(deg: number): number {
 export class Score {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
+  private music!: GainNode;
+  private musicLevel = 0.8;
+  private notesLevel = 0.9;
   private notes!: GainNode;
   private send!: GainNode;
   private padGain!: GainNode;
@@ -74,8 +78,12 @@ export class Score {
     this.send.gain.value = 0.42;
     this.send.connect(verb).connect(this.master);
 
+    this.music = ctx.createGain();
+    this.music.gain.value = this.musicLevel;
+    this.music.connect(this.master);
+
     this.notes = ctx.createGain();
-    this.notes.gain.value = 0.5;
+    this.notes.gain.value = 0.5 * this.notesLevel;
     this.notes.connect(this.master);
     this.notes.connect(this.send);
 
@@ -87,7 +95,7 @@ export class Score {
     this.padGain = ctx.createGain();
     this.padGain.gain.value = 0;
     this.padFilter.connect(this.padGain);
-    this.padGain.connect(this.master);
+    this.padGain.connect(this.music);
     this.padGain.connect(this.send);
     for (let i = 0; i < 6; i++) {
       const o = ctx.createOscillator();
@@ -119,7 +127,7 @@ export class Score {
     f.Q.value = q;
     const g = ctx.createGain();
     g.gain.value = 0;
-    src.connect(f).connect(g).connect(this.master);
+    src.connect(f).connect(g).connect(this.music);
     src.start();
     return g;
   }
@@ -137,6 +145,15 @@ export class Score {
   setMuted(m: boolean): void {
     this.muted = m;
     if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.85, this.ctx.currentTime, 0.08);
+  }
+
+  setVolumes(music: number, notes: number): void {
+    this.musicLevel = music;
+    this.notesLevel = notes;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.music.gain.setTargetAtTime(music, t, 0.05);
+    this.notes.gain.setTargetAtTime(0.5 * notes, t, 0.05);
   }
 
   suspend(): void {
@@ -289,8 +306,44 @@ export class Score {
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.12, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
-    s.connect(f).connect(g).connect(this.master);
+    s.connect(f).connect(g).connect(this.notes);
     s.start(t, Math.random());
     s.stop(t + 0.5);
+  }
+
+  /** Air rushing past at the start of a dive, louder the faster you go. */
+  whoosh(intensity: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running" || intensity < 0.15) return;
+    const t = ctx.currentTime;
+    const s = ctx.createBufferSource();
+    s.buffer = this.noise;
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.Q.value = 1.2;
+    f.frequency.setValueAtTime(380, t);
+    f.frequency.exponentialRampToValueAtTime(1500, t + 0.35);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.09 * Math.min(1, intensity), t + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+    s.connect(f).connect(g).connect(this.notes);
+    s.start(t, Math.random());
+    s.stop(t + 0.45);
+  }
+
+  /** A rising bell phrase for a kilometre or a new tier. */
+  milestone(): void {
+    this.note(9, 1, 0.75);
+    this.note(12, 1, 0.65, 1);
+    this.note(14, 1, 0.55, 2);
+  }
+
+  /** The light going out: a short falling phrase. */
+  fade(): void {
+    this.note(9, 0, 0.6);
+    this.note(7, 0, 0.5, 1);
+    this.note(4, 0, 0.45, 2);
+    this.note(2, 0, 0.4, 4);
   }
 }

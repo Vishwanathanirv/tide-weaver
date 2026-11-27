@@ -6,12 +6,17 @@ import { mulberry32 } from "./rng";
 type RGB = [number, number, number];
 
 /**
- * Four art styles that the world drifts through, one per weather cycle:
- * watercolour washes at twilight, neon bioluminescence at midnight, layered paper-cut at dawn
- * and sumi-e ink in the rain. Every layer is drawn per style and blended by weight, so the
- * crossfades are real paint changes, not colour tints.
+ * Five skies the world drifts through, one per minute: watercolour twilight, a moonlit sea,
+ * aurora, layered paper-cut dawn and sumi-e ink rain. Every layer is drawn per style and
+ * blended by weight, so the crossfades are real changes of paint, not colour tints.
  */
-export const STYLES = ["Watercolour Twilight", "Neon Midnight", "Paper Dawn", "Ink Rain"] as const;
+export const STYLES = ["Watercolour Twilight", "Moonlit Sea", "Aurora", "Paper Dawn", "Ink Rain"] as const;
+export const STYLE_COUNT = STYLES.length;
+const TW = 0;
+const MOON = 1;
+const AUR = 2;
+const PAPER = 3;
+const INK = 4;
 
 interface Palette {
   skyTop: RGB;
@@ -28,7 +33,8 @@ const hex = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3
 
 const PAL: Palette[] = [
   { skyTop: hex("#241f52"), skyBot: hex("#e8957d"), m: [hex("#8a6aa8"), hex("#6d4f93"), hex("#4b3777")], seaTop: hex("#3d5c9c"), seaBot: hex("#141a42"), line: hex("#ffe2cf"), accent: hex("#ffd39a"), orb: hex("#fff3d6") },
-  { skyTop: hex("#02030c"), skyBot: hex("#0c1a48"), m: [hex("#0c1436"), hex("#09102c"), hex("#060a20")], seaTop: hex("#06203a"), seaBot: hex("#010409"), line: hex("#3ee6d0"), accent: hex("#9b7bff"), orb: hex("#c9fff8") },
+  { skyTop: hex("#02040f"), skyBot: hex("#0e2150"), m: [hex("#101a40"), hex("#0b1434"), hex("#070d24")], seaTop: hex("#0a2a52"), seaBot: hex("#01040b"), line: hex("#cfe6ff"), accent: hex("#9fd0ff"), orb: hex("#eef6ff") },
+  { skyTop: hex("#03141c"), skyBot: hex("#1c3a4c"), m: [hex("#21404d"), hex("#17313d"), hex("#0e212a")], seaTop: hex("#0f3a44"), seaBot: hex("#03131a"), line: hex("#8affd6"), accent: hex("#c59bff"), orb: hex("#eafff7") },
   { skyTop: hex("#ffc27a"), skyBot: hex("#fff0d2"), m: [hex("#f0956b"), hex("#d2654f"), hex("#97404a")], seaTop: hex("#2c7a78"), seaBot: hex("#123d46"), line: hex("#fff7e4"), accent: hex("#ff9f43"), orb: hex("#fffaf0") },
   { skyTop: hex("#252a31"), skyBot: hex("#8d939c"), m: [hex("#5a5f68"), hex("#3b3f46"), hex("#22252a")], seaTop: hex("#2a2f36"), seaBot: hex("#0b0d10"), line: hex("#ece9e1"), accent: hex("#d7e3ee"), orb: hex("#ffffff") },
 ];
@@ -37,7 +43,7 @@ const ZONE_TINT: RGB[] = [hex("#ffd9a0"), hex("#9cefff"), hex("#b9f29d"), hex("#
 
 function mixPal(w: readonly number[], pick: (p: Palette) => RGB, out: RGB): RGB {
   out[0] = out[1] = out[2] = 0;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < STYLE_COUNT; i++) {
     if (w[i] <= 0) continue;
     const c = pick(PAL[i]);
     out[0] += c[0] * w[i];
@@ -50,6 +56,10 @@ function mixPal(w: readonly number[], pick: (p: Palette) => RGB, out: RGB): RGB 
 const css = (c: RGB, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+const hash = (n: number) => {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
 
 function auraColor(aura: Aura, t: number, time: number, out: RGB): RGB {
   const mix = (a: string, b: string) => {
@@ -104,6 +114,7 @@ class Particles {
   g = new Uint8Array(this.n);
   b = new Uint8Array(this.n);
   kind = new Uint8Array(this.n);
+  density = 1;
   private next = 0;
   private rnd = mulberry32(99);
 
@@ -124,7 +135,8 @@ class Particles {
   }
 
   burst(x: number, y: number, count: number, speed: number, c: RGB, kind = 0, life = 0.9): void {
-    for (let k = 0; k < count; k++) {
+    const n = Math.max(1, Math.round(count * this.density));
+    for (let k = 0; k < n; k++) {
       const a = this.rnd() * Math.PI * 2;
       const s = speed * (0.35 + this.rnd() * 0.65);
       this.spawn(x, y, Math.cos(a) * s, Math.sin(a) * s + speed * 0.3, life * (0.6 + this.rnd() * 0.6), 1.5 + this.rnd() * 2.5, c, kind);
@@ -140,7 +152,7 @@ class Particles {
       else if (k === 2) {
         this.vx[i] += Math.sin(time * 2 + i) * 18 * dt;
         this.vy[i] += Math.cos(time * 1.7 + i * 0.3) * 18 * dt;
-      } else if (k === 3) this.vy[i] -= 60 * dt;
+      }
       this.x[i] += this.vx[i] * dt;
       this.y[i] += this.vy[i] * dt;
     }
@@ -158,6 +170,12 @@ export interface FrameState {
   holding: boolean;
   reducedMotion: boolean;
   speed: number;
+  /** 0..1: the spirit's light. The world dims as it fades. */
+  light: number;
+  /** 0..3: flow tier, which brightens the trail. */
+  tier: number;
+  /** World x of the best distance so far, or -1. */
+  bestX: number;
 }
 
 export class Renderer {
@@ -172,11 +190,12 @@ export class Renderer {
   private ready = false;
   private ridge = new Float32Array(512);
   private sea = new Float32Array(512);
+  private seaN = 0;
   private trail = new Float32Array(96);
   private trailHead = 0;
   private trailLen = 0;
   readonly fx = new Particles();
-  private texts: { text: string; x: number; y: number; life: number }[] = [];
+  private texts: { text: string; x: number; y: number; life: number; big: boolean }[] = [];
   private stars: Float32Array;
   private grain: CanvasPattern | null = null;
   private vignette: HTMLCanvasElement | null = null;
@@ -186,19 +205,24 @@ export class Renderer {
   private tmp2: RGB = [0, 0, 0];
   private zoneTint = 0;
   private horizon = 0.74;
+  private glow = 0;
+  private waves: { x: number; y: number; life: number }[] = [];
+  private moonX = 0;
+  private moonY = 0;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) throw new Error("Canvas 2D is not available");
     this.ctx = ctx;
     const r = mulberry32(7);
-    this.stars = new Float32Array(160 * 3);
-    for (let i = 0; i < 160; i++) {
+    this.stars = new Float32Array(170 * 3);
+    for (let i = 0; i < 170; i++) {
       this.stars[i * 3] = r();
-      this.stars[i * 3 + 1] = r() * 0.62;
+      this.stars[i * 3 + 1] = r() * 0.6;
       this.stars[i * 3 + 2] = 0.4 + r() * 1.4;
     }
-    for (let i = 0; i < 6; i++) this.texts.push({ text: "", x: 0, y: 0, life: 0 });
+    for (let i = 0; i < 6; i++) this.texts.push({ text: "", x: 0, y: 0, life: 0, big: false });
+    for (let i = 0; i < 4; i++) this.waves.push({ x: 0, y: 0, life: 0 });
   }
 
   resize(cssW: number, cssH: number, dpr: number): void {
@@ -209,7 +233,8 @@ export class Renderer {
     this.canvas.height = Math.round(this.h * dpr);
     this.base = clamp(Math.min(this.h / 820, this.w / 620), 0.5, 1.5);
     this.horizon = this.w < this.h ? 0.66 : 0.74;
-    // Paper grain, made once per size.
+    this.moonX = this.w * 0.74;
+    this.moonY = this.h * 0.22;
     const g = document.createElement("canvas");
     g.width = g.height = 160;
     const gx = g.getContext("2d")!;
@@ -234,10 +259,6 @@ export class Renderer {
     this.vignette = v;
   }
 
-  get viewWidth(): number {
-    return this.w;
-  }
-
   pushTrail(x: number, y: number): void {
     this.trail[this.trailHead * 2] = x;
     this.trail[this.trailHead * 2 + 1] = y;
@@ -248,15 +269,18 @@ export class Renderer {
   resetTrail(): void {
     this.trailLen = 0;
     this.ready = false;
+    for (const t of this.texts) t.life = 0;
+    for (const w of this.waves) w.life = 0;
   }
 
-  popup(text: string, x: number, y: number): void {
+  popup(text: string, x: number, y: number, big = false): void {
     let slot = this.texts[0];
     for (const t of this.texts) if (t.life < slot.life) slot = t;
     slot.text = text;
     slot.x = x;
     slot.y = y;
-    slot.life = 1.4;
+    slot.life = big ? 1.8 : 1.4;
+    slot.big = big;
   }
 
   showBanner(text: string): void {
@@ -270,6 +294,16 @@ export class Renderer {
 
   kick(amount: number): void {
     this.shake = Math.max(this.shake, amount);
+  }
+
+  /** A perfect dive: a ring of light runs out across the water and the sea glows for a moment. */
+  pulse(x: number, y: number, strength: number): void {
+    let slot = this.waves[0];
+    for (const w of this.waves) if (w.life < slot.life) slot = w;
+    slot.x = x;
+    slot.y = y;
+    slot.life = 1;
+    this.glow = Math.min(1.4, this.glow + strength);
   }
 
   private sx(x: number): number {
@@ -298,8 +332,8 @@ export class Renderer {
     const targetY = ground + Math.max(0, alt - 2200) * 0.85;
     this.camY = this.ready ? lerp(this.camY, targetY, 1 - Math.exp(-f.dt * 4)) : targetY;
     this.ready = true;
-
     this.fx.update(f.dt, f.time);
+    this.glow = Math.max(0, this.glow - f.dt * 1.2);
     const wt = f.weights;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -311,19 +345,27 @@ export class Renderer {
 
     this.sky(f, wt);
     this.mountains(wt);
+    this.bestMarker(f);
     this.ringsLayer(f);
     this.seaLayer(f, wt);
+    this.underwater(f, wt);
     this.trailLayer(f, px, py);
     this.particlesLayer(f, wt);
     this.spiritLayer(f, px, py);
     this.weatherLayer(f, wt);
     this.textLayer(f);
 
-    if (this.grain && wt[0] + wt[2] > 0.01) {
-      ctx.globalAlpha = 0.09 * (wt[0] + wt[2]);
+    const paperish = wt[TW] + wt[PAPER];
+    if (this.grain && paperish > 0.01) {
+      ctx.globalAlpha = 0.09 * paperish;
       ctx.fillStyle = this.grain;
       ctx.fillRect(-20, -20, w + 40, h + 40);
       ctx.globalAlpha = 1;
+    }
+    // As the light fades, the night closes in.
+    if (f.light < 0.999) {
+      ctx.fillStyle = `rgba(4,4,16,${(1 - f.light) * 0.5})`;
+      ctx.fillRect(-20, -20, w + 40, h + 40);
     }
     if (this.vignette) ctx.drawImage(this.vignette, 0, 0, w, h);
   }
@@ -336,40 +378,95 @@ export class Renderer {
     ctx.fillStyle = g;
     ctx.fillRect(-20, -20, w + 40, h + 40);
 
-    // Stars: many at midnight, a few at twilight.
-    const sw = wt[1] + wt[0] * 0.35 + wt[3] * 0.05;
-    if (sw > 0.01) {
+    const night = wt[MOON] + wt[AUR] * 0.9 + wt[TW] * 0.35 + wt[INK] * 0.05;
+    if (night > 0.01) {
       ctx.fillStyle = "#fff";
-      for (let i = 0; i < 160; i++) {
+      for (let i = 0; i < 170; i++) {
         const tw = 0.55 + 0.45 * Math.sin(f.time * (1 + (i % 5) * 0.4) + i);
-        ctx.globalAlpha = sw * tw * 0.9;
-        const x = ((this.stars[i * 3] * w - this.camX * 0.01) % w + w) % w;
+        ctx.globalAlpha = night * tw * 0.9;
+        const x = (((this.stars[i * 3] * w - this.camX * 0.01) % w) + w) % w;
         const sz = this.stars[i * 3 + 2];
         ctx.fillRect(x, this.stars[i * 3 + 1] * h, sz, sz);
       }
       ctx.globalAlpha = 1;
+      // A shooting star every few seconds, never two at once.
+      const period = 6.3;
+      const n = Math.floor(f.time / period);
+      const ph = (f.time % period) / 0.9;
+      if (ph < 1 && !f.reducedMotion) {
+        const sx = w * (0.15 + hash(n) * 0.6);
+        const sy = h * (0.05 + hash(n + 9) * 0.18);
+        const len = 160 + hash(n + 3) * 120;
+        const hx = sx + len * ph;
+        const hy = sy + len * 0.35 * ph;
+        const tg = ctx.createLinearGradient(hx, hy, hx - 90, hy - 32);
+        tg.addColorStop(0, `rgba(255,255,255,${night * (1 - ph)})`);
+        tg.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.strokeStyle = tg;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(hx - 90, hy - 32);
+        ctx.stroke();
+      }
     }
 
-    // Moon at twilight and midnight, a paper sun at dawn.
-    const mx = w * 0.74;
-    const my = h * 0.24;
-    if (wt[0] + wt[1] > 0.01) {
-      ctx.globalAlpha = wt[0] * 0.8 + wt[1];
+    // Aurora curtains: slow green and violet bands breathing across the sky.
+    if (wt[AUR] > 0.01) {
+      ctx.globalCompositeOperation = "lighter";
+      for (let band = 0; band < 3; band++) {
+        const top = h * (0.08 + band * 0.07);
+        const col = band === 1 ? "197,155,255" : "120,255,200";
+        const g2 = ctx.createLinearGradient(0, top - 20, 0, top + h * 0.22);
+        g2.addColorStop(0, `rgba(${col},0)`);
+        g2.addColorStop(0.35, `rgba(${col},${0.22 * wt[AUR]})`);
+        g2.addColorStop(1, `rgba(${col},0)`);
+        ctx.fillStyle = g2;
+        ctx.beginPath();
+        const step = 24;
+        for (let x = -step; x <= w + step; x += step) {
+          const y = top + Math.sin(x * 0.006 + f.time * 0.25 + band * 2) * 26 + Math.sin(x * 0.017 - f.time * 0.4 + band) * 10;
+          if (x === -step) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        for (let x = w + step; x >= -step; x -= step) {
+          const y = top + h * 0.2 + Math.sin(x * 0.005 + f.time * 0.2 + band) * 30;
+          ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = "source-over";
+    }
+
+    // The moon at night, a paper sun at dawn, both with a soft halo.
+    const mx = this.moonX;
+    const my = this.moonY;
+    const moon = wt[TW] * 0.8 + wt[MOON] + wt[AUR] * 0.6;
+    if (moon > 0.01) {
       const r = Math.min(w, h) * 0.06;
-      const mg = ctx.createRadialGradient(mx, my, r * 0.2, mx, my, r * 3);
-      mg.addColorStop(0, wt[1] > wt[0] ? "rgba(200,255,250,0.5)" : "rgba(255,236,214,0.45)");
+      const silver = wt[MOON] + wt[AUR] > wt[TW];
+      const pulse = 1 + 0.06 * Math.sin(f.time * 0.8);
+      const mg = ctx.createRadialGradient(mx, my, r * 0.5, mx, my, r * 4.2 * pulse);
+      mg.addColorStop(0, silver ? "rgba(214,232,255,0.42)" : "rgba(255,236,214,0.42)");
       mg.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.globalAlpha = moon;
       ctx.fillStyle = mg;
-      ctx.fillRect(mx - r * 3, my - r * 3, r * 6, r * 6);
-      ctx.fillStyle = wt[1] > wt[0] ? "#dffffb" : "#fff1e2";
+      ctx.fillRect(mx - r * 5, my - r * 5, r * 10, r * 10);
+      ctx.fillStyle = silver ? "#eef5ff" : "#fff1e2";
       ctx.beginPath();
       ctx.arc(mx, my, r, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = silver ? "rgba(150,170,205,0.22)" : "rgba(220,170,150,0.2)";
+      ctx.beginPath();
+      ctx.arc(mx - r * 0.3, my - r * 0.2, r * 0.22, 0, Math.PI * 2);
+      ctx.arc(mx + r * 0.32, my + r * 0.28, r * 0.15, 0, Math.PI * 2);
+      ctx.fill();
       ctx.globalAlpha = 1;
     }
-    if (wt[2] > 0.01) {
+    if (wt[PAPER] > 0.01) {
       const r = Math.min(w, h) * 0.11;
-      ctx.globalAlpha = wt[2];
+      ctx.globalAlpha = wt[PAPER];
       const cols = ["#ffe3a8", "#ffd27a", "#ffbe55", "#ffa83d"];
       for (let i = 0; i < 4; i++) {
         ctx.fillStyle = "rgba(120,50,20,0.18)";
@@ -384,27 +481,26 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
 
-    // Drifting clouds: soft washes, or cut paper at dawn.
-    const cw = wt[0] + wt[2] + wt[3] * 0.6;
+    const cw = wt[TW] + wt[PAPER] + wt[INK] * 0.6 + wt[MOON] * 0.25;
     if (cw > 0.01) {
       for (let i = 0; i < 6; i++) {
         const span = w + 400;
-        const cx = ((i * 337 + 90 - this.camX * 0.04 - f.time * 6) % span + span) % span - 200;
+        const cx = (((i * 337 + 90 - this.camX * 0.04 - f.time * 6) % span) + span) % span - 200;
         const cy = h * (0.12 + ((i * 53) % 30) / 100);
         const r = 30 + ((i * 71) % 40);
-        if (wt[2] > 0.01) {
-          ctx.globalAlpha = wt[2];
+        if (wt[PAPER] > 0.01) {
+          ctx.globalAlpha = wt[PAPER];
           ctx.fillStyle = "rgba(140,60,30,0.16)";
           this.puff(cx + 5, cy + 7, r);
           ctx.fillStyle = "#fff6e6";
           this.puff(cx, cy, r);
         }
-        const soft = wt[0] + wt[3] * 0.6;
+        const soft = wt[TW] + wt[INK] * 0.6 + wt[MOON] * 0.25;
         if (soft > 0.01) {
-          ctx.globalAlpha = soft * 0.32;
-          ctx.fillStyle = wt[3] > wt[0] ? "#9aa1ab" : "#f6c9c0";
+          ctx.globalAlpha = soft * 0.3;
+          ctx.fillStyle = wt[INK] > wt[TW] ? "#9aa1ab" : wt[MOON] > wt[TW] ? "#3b4f7a" : "#f6c9c0";
           this.puff(cx, cy, r * 1.2);
-          ctx.globalAlpha = soft * 0.18;
+          ctx.globalAlpha = soft * 0.16;
           this.puff(cx + 6, cy - 4, r * 1.4);
         }
       }
@@ -426,7 +522,7 @@ export class Renderer {
     const step = 12;
     const n = Math.min(255, Math.ceil(w / step) + 2);
     const ms = lerp(1, this.scale / this.base, 0.35);
-    const parallax = [0.08, 0.16, 0.28];
+    const parallax = [0.06, 0.14, 0.28];
     for (let layer = 0; layer < 3; layer++) {
       const amp = h * (0.2 - layer * 0.035) * ms;
       const baseY = h * (0.5 + layer * 0.07) + (1 - ms) * h * 0.08;
@@ -454,61 +550,93 @@ export class Renderer {
         for (let i = 0; i < n; i++) ctx[i ? "lineTo" : "moveTo"](this.ridge[i * 2], this.ridge[i * 2 + 1] + dy);
         ctx.stroke();
       };
-      // Watercolour: three translucent washes slightly out of register, with a darker wet edge.
-      if (wt[0] > 0.01) {
-        ctx.fillStyle = css(col, 0.42 * wt[0]);
+      // Atmospheric haze: the far range sits closer to the colour of the sky.
+      const haze = (2 - layer) * 0.18;
+      if (wt[TW] > 0.01) {
+        ctx.fillStyle = css(col, 0.42 * wt[TW]);
         fillRidge(0, 0);
         fillRidge(-3, 5);
         fillRidge(4, 10);
-        ctx.strokeStyle = css(col, 0.35 * wt[0]);
+        ctx.strokeStyle = css(col, 0.35 * wt[TW]);
         ctx.lineWidth = 2;
         strokeRidge(1);
       }
-      // Neon: dark solid with a glowing contour.
-      if (wt[1] > 0.01) {
-        ctx.fillStyle = css(col, wt[1]);
+      const glowy = wt[MOON] + wt[AUR];
+      if (glowy > 0.01) {
+        ctx.fillStyle = css(col, glowy);
         fillRidge(0, 0);
-        const glow = layer === 2 ? PAL[1].line : PAL[1].accent;
+        if (haze > 0) {
+          ctx.fillStyle = css(sky, haze * glowy * 0.6);
+          fillRidge(0, 0);
+        }
         ctx.globalCompositeOperation = "lighter";
-        ctx.strokeStyle = css(glow, 0.12 * wt[1]);
-        ctx.lineWidth = 8;
-        strokeRidge();
-        ctx.strokeStyle = css(glow, (0.35 + layer * 0.2) * wt[1]);
-        ctx.lineWidth = 1.4;
-        strokeRidge();
+        for (const [i, wgt] of [
+          [MOON, wt[MOON]],
+          [AUR, wt[AUR]],
+        ] as const) {
+          if (wgt < 0.01) continue;
+          const glow = layer === 2 ? PAL[i].line : PAL[i].accent;
+          ctx.strokeStyle = css(glow, 0.1 * wgt);
+          ctx.lineWidth = 8;
+          strokeRidge();
+          ctx.strokeStyle = css(glow, (0.25 + layer * 0.15) * wgt);
+          ctx.lineWidth = 1.3;
+          strokeRidge();
+        }
         ctx.globalCompositeOperation = "source-over";
       }
-      // Paper-cut: flat colour over a cast shadow.
-      if (wt[2] > 0.01) {
-        ctx.fillStyle = `rgba(70,20,15,${0.26 * wt[2]})`;
+      if (wt[PAPER] > 0.01) {
+        ctx.fillStyle = `rgba(70,20,15,${0.26 * wt[PAPER]})`;
         fillRidge(6, 8);
-        ctx.fillStyle = css(col, wt[2]);
+        ctx.fillStyle = css(col, wt[PAPER]);
         fillRidge(0, 0);
       }
-      // Ink: ridge stroke that fades into mist below.
-      if (wt[3] > 0.01) {
+      if (wt[INK] > 0.01) {
         let top = h;
         for (let i = 0; i < n; i++) top = Math.min(top, this.ridge[i * 2 + 1]);
         const g = ctx.createLinearGradient(0, top, 0, top + h * 0.32);
-        g.addColorStop(0, css(col, 0.95 * wt[3]));
+        g.addColorStop(0, css(col, 0.95 * wt[INK]));
         g.addColorStop(1, css(sky, 0));
         ctx.fillStyle = g;
         fillRidge(0, 0);
-        ctx.strokeStyle = css(col, 0.9 * wt[3]);
+        ctx.strokeStyle = css(col, 0.9 * wt[INK]);
         ctx.lineWidth = 3 - layer * 0.6;
         strokeRidge();
       }
     }
   }
 
+  private bestMarker(f: FrameState): void {
+    if (f.bestX <= 0) return;
+    const x = this.sx(f.bestX);
+    if (x < -40 || x > this.w + 40) return;
+    const { ctx, h } = this;
+    const top = this.sy(f.terrain.height(f.bestX));
+    const g = ctx.createLinearGradient(0, 0, 0, top);
+    g.addColorStop(0, "rgba(255,230,170,0)");
+    g.addColorStop(1, "rgba(255,230,170,0.35)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x - 3, 0, 6, top);
+    ctx.fillStyle = "rgba(255,240,210,0.85)";
+    ctx.font = "600 11px ui-rounded, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("BEST", x, Math.min(top - 10, h * 0.3));
+    ctx.textAlign = "start";
+  }
+
   private seaLayer(f: FrameState, wt: number[]): void {
     const { ctx, w, h } = this;
     const step = 6;
     const n = Math.min(255, Math.ceil(w / step) + 2);
+    this.seaN = n;
+    const calm = f.reducedMotion ? 0.3 : 1;
     for (let i = 0; i < n; i++) {
       const x = i * step - 4;
+      const wx = this.wx(x);
+      // Visual-only ripples ride on top of the physics surface.
+      const ripple = (Math.sin(wx * 0.045 + f.time * 2.1) * 1.3 + Math.sin(wx * 0.011 - f.time * 1.2) * 1.9) * calm;
       this.sea[i * 2] = x;
-      this.sea[i * 2 + 1] = this.sy(f.terrain.height(this.wx(x)));
+      this.sea[i * 2 + 1] = this.sy(f.terrain.height(wx)) + ripple;
     }
     let top = h;
     for (let i = 0; i < n; i++) top = Math.min(top, this.sea[i * 2 + 1]);
@@ -525,8 +653,8 @@ export class Renderer {
       ctx.stroke();
     };
 
-    if (wt[2] > 0.01) {
-      ctx.fillStyle = `rgba(20,30,30,${0.3 * wt[2]})`;
+    if (wt[PAPER] > 0.01) {
+      ctx.fillStyle = `rgba(20,30,30,${0.3 * wt[PAPER]})`;
       path(-7);
       ctx.fill();
     }
@@ -537,45 +665,65 @@ export class Renderer {
     path(0);
     ctx.fill();
 
+    // Moon or sun on the water: a column of broken light under it.
+    const refl = wt[TW] * 0.5 + wt[MOON] + wt[AUR] * 0.5 + wt[PAPER] * 0.6;
+    if (refl > 0.01) {
+      const mx = this.moonX;
+      const idx = clamp(Math.round((mx + 4) / step), 0, n - 1);
+      const surf = this.sea[idx * 2 + 1];
+      ctx.globalCompositeOperation = "lighter";
+      const c = wt[PAPER] > 0.5 ? "255,200,120" : wt[MOON] + wt[AUR] > wt[TW] ? "200,225,255" : "255,225,200";
+      for (let i = 0; i < 16; i++) {
+        const y = surf + 8 + i * 9;
+        if (y > h) break;
+        const wob = Math.sin(f.time * 1.7 + i * 1.3) * 10;
+        const len = (36 - i * 1.6) * (0.6 + 0.4 * Math.sin(f.time * 2.3 + i));
+        ctx.fillStyle = `rgba(${c},${refl * 0.22 * (1 - i / 16)})`;
+        ctx.fillRect(mx + wob - len / 2, y, len, 2);
+      }
+      ctx.globalCompositeOperation = "source-over";
+    }
+
     const line = mixPal(wt, (p) => p.line, this.tmp);
     const tint = ZONE_TINT[this.zoneTint];
     for (let c = 0; c < 3; c++) line[c] = lerp(line[c], tint[c], 0.22);
+    const lift = this.glow;
 
-    // A second, deeper current under the surface.
     ctx.strokeStyle = css(line, 0.18);
     ctx.lineWidth = 2;
     edge(24 * this.scale + 10);
     ctx.strokeStyle = css(line, 0.08);
     edge(60 * this.scale + 22);
 
-    if (wt[0] > 0.01) {
-      ctx.strokeStyle = css(line, 0.9 * wt[0]);
+    if (wt[TW] > 0.01) {
+      ctx.strokeStyle = css(line, 0.9 * wt[TW]);
       ctx.lineWidth = 2.5;
       edge(0);
-      ctx.strokeStyle = css(line, 0.35 * wt[0]);
+      ctx.strokeStyle = css(line, 0.35 * wt[TW]);
       ctx.lineWidth = 6;
       edge(4);
     }
-    if (wt[1] > 0.01) {
+    const glowy = wt[MOON] + wt[AUR];
+    if (glowy > 0.01 || lift > 0.01) {
       ctx.globalCompositeOperation = "lighter";
-      ctx.strokeStyle = css(line, 0.12 * wt[1]);
-      ctx.lineWidth = 14;
+      ctx.strokeStyle = css(line, 0.12 * glowy + 0.14 * lift);
+      ctx.lineWidth = 14 + lift * 10;
       edge(0);
-      ctx.strokeStyle = css(line, 0.35 * wt[1]);
+      ctx.strokeStyle = css(line, 0.35 * glowy + 0.3 * lift);
       ctx.lineWidth = 5;
       edge(0);
-      ctx.strokeStyle = css(line, wt[1]);
+      ctx.strokeStyle = css(line, Math.min(1, glowy + lift * 0.5));
       ctx.lineWidth = 1.6;
       edge(0);
       ctx.globalCompositeOperation = "source-over";
     }
-    if (wt[2] > 0.01) {
-      ctx.strokeStyle = css(line, wt[2]);
+    if (wt[PAPER] > 0.01) {
+      ctx.strokeStyle = css(line, wt[PAPER]);
       ctx.lineWidth = 3;
       edge(0);
     }
-    if (wt[3] > 0.01) {
-      ctx.strokeStyle = css(line, 0.85 * wt[3]);
+    if (wt[INK] > 0.01) {
+      ctx.strokeStyle = css(line, 0.85 * wt[INK]);
       ctx.lineCap = "round";
       for (let i = 0; i + 2 < n; i += 2) {
         ctx.lineWidth = 1.5 + 2.5 * (0.5 + 0.5 * Math.sin(i * 0.37 + this.camX * 0.002));
@@ -586,6 +734,45 @@ export class Renderer {
       }
       ctx.lineCap = "butt";
     }
+
+    // Perfect-dive rings running out across the water.
+    for (const wv of this.waves) {
+      if (wv.life <= 0) continue;
+      wv.life -= f.dt * 1.1;
+      const t = 1 - Math.max(0, wv.life);
+      ctx.strokeStyle = css(line, 0.6 * Math.max(0, wv.life));
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(this.sx(wv.x), this.sy(wv.y) + 4, 20 + t * 220 * this.scale, 4 + t * 26 * this.scale, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  /** Glowing plankton drifting below the surface. */
+  private underwater(f: FrameState, wt: number[]): void {
+    const amount = (wt[TW] * 0.4 + wt[MOON] + wt[AUR] + wt[INK] * 0.15 + wt[PAPER] * 0.1) * this.fx.density;
+    if (amount < 0.02 || this.seaN === 0) return;
+    const { ctx, w, h } = this;
+    const step = 6;
+    ctx.globalCompositeOperation = "lighter";
+    const c = wt[AUR] > 0.4 ? "140,255,210" : wt[MOON] > 0.4 ? "170,210,255" : "180,255,235";
+    for (let i = 0; i < 46; i++) {
+      const span = w + 60;
+      const x = (((hash(i) * span - this.camX * (0.4 + hash(i + 50) * 0.5) * this.scale + f.time * 8) % span) + span) % span - 30;
+      const idx = clamp(Math.round((x + 4) / step), 0, this.seaN - 1);
+      const surf = this.sea[idx * 2 + 1];
+      const room = Math.max(30, h - surf - 30);
+      const depth = 20 + hash(i + 7) * room;
+      const y = surf + depth + Math.sin(f.time * 0.6 + i) * 6;
+      if (y > h) continue;
+      const tw = 0.5 + 0.5 * Math.sin(f.time * (0.8 + hash(i + 3)) + i * 2);
+      const a = amount * tw * Math.max(0, 1 - depth / (room + 40)) * 0.55;
+      ctx.fillStyle = `rgba(${c},${a * 0.3})`;
+      ctx.fillRect(x - 3, y - 3, 6, 6);
+      ctx.fillStyle = `rgba(${c},${a})`;
+      ctx.fillRect(x - 1, y - 1, 2, 2);
+    }
+    ctx.globalCompositeOperation = "source-over";
   }
 
   private ringsLayer(f: FrameState): void {
@@ -598,7 +785,8 @@ export class Renderer {
         if (r.taken) continue;
         const x = this.sx(r.x);
         const y = this.sy(r.y);
-        const rad = r.r * this.scale;
+        const breathe = 1 + 0.05 * Math.sin(f.time * 3 + r.x);
+        const rad = r.r * this.scale * breathe;
         ctx.globalCompositeOperation = "lighter";
         ctx.strokeStyle = css(accent, 0.18);
         ctx.lineWidth = 10;
@@ -623,9 +811,12 @@ export class Renderer {
   private trailLayer(f: FrameState, px: number, py: number): void {
     const { ctx } = this;
     if (this.trailLen < 2) return;
-    const wide = f.aura === "comet" ? 1.7 : 1;
+    // The trail answers how you move: faster is wider, higher tiers burn brighter.
+    const sp = clamp(f.speed / 1600, 0.35, 1.3);
+    const wide = (f.aura === "comet" ? 1.7 : 1) * sp * (1 + f.tier * 0.15);
+    const bright = (0.55 + f.tier * 0.15) * (0.5 + 0.5 * f.light);
     ctx.lineCap = "round";
-    ctx.globalCompositeOperation = f.weights[2] > 0.5 ? "source-over" : "lighter";
+    ctx.globalCompositeOperation = f.weights[PAPER] > 0.5 ? "source-over" : "lighter";
     let lx = 0;
     let ly = 0;
     for (let i = 0; i <= this.trailLen; i++) {
@@ -645,7 +836,7 @@ export class Renderer {
         const t = i / this.trailLen;
         const c = auraColor(f.aura, t, f.time, this.tmp);
         const flicker = f.aura === "moth" ? 0.6 + 0.4 * Math.sin(f.time * 20 + i) : 1;
-        ctx.strokeStyle = css(c, t * 0.75 * flicker);
+        ctx.strokeStyle = css(c, Math.min(1, t * bright * flicker));
         ctx.lineWidth = Math.max(1, 12 * t * wide * clamp(this.scale, 0.45, 1.3));
         ctx.beginPath();
         ctx.moveTo(lx, ly);
@@ -661,18 +852,18 @@ export class Renderer {
 
   private particlesLayer(f: FrameState, wt: number[]): void {
     const { ctx, fx } = this;
-    // Fireflies drift in at midnight and twilight.
-    const ff = wt[1] + wt[0] * 0.3;
-    if (ff > 0.05 && Math.random() < ff * 0.5) {
+    const ff = (wt[MOON] + wt[AUR] + wt[TW] * 0.3) * fx.density;
+    if (ff > 0.05 && Math.random() < ff * 0.45) {
       const x = this.wx(Math.random() * this.w);
       const y = f.terrain.height(x) + 40 + Math.random() * 380;
-      this.tmp2[0] = 190;
-      this.tmp2[1] = 255;
-      this.tmp2[2] = 200;
-      if (wt[0] > wt[1]) {
+      if (wt[TW] > wt[MOON] + wt[AUR]) {
         this.tmp2[0] = 255;
         this.tmp2[1] = 220;
         this.tmp2[2] = 150;
+      } else {
+        this.tmp2[0] = 170;
+        this.tmp2[1] = 255;
+        this.tmp2[2] = 215;
       }
       fx.spawn(x, y, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, 3 + Math.random() * 3, 2, this.tmp2, 2);
     }
@@ -714,15 +905,17 @@ export class Renderer {
     const size = 10 * clamp(this.scale * 1.1, 0.75, 1.5);
     const orb = mixPal(f.weights, (p) => p.orb, this.tmp);
     const halo = auraColor(f.aura, 1, f.time, this.tmp2);
-    ctx.globalCompositeOperation = f.weights[2] > 0.5 ? "source-over" : "lighter";
-    const g = ctx.createRadialGradient(x, y, 0, x, y, size * 5);
-    g.addColorStop(0, css(halo, 0.55));
+    // Low light: the halo shrinks and flickers.
+    const flick = f.light < 0.25 ? 0.6 + 0.4 * Math.sin(f.time * 18) : 1;
+    const hr = size * (2.5 + 2.5 * f.light) * flick;
+    ctx.globalCompositeOperation = f.weights[PAPER] > 0.5 ? "source-over" : "lighter";
+    const g = ctx.createRadialGradient(x, y, 0, x, y, hr);
+    g.addColorStop(0, css(halo, 0.55 * flick));
     g.addColorStop(1, css(halo, 0));
     ctx.fillStyle = g;
-    ctx.fillRect(x - size * 5, y - size * 5, size * 10, size * 10);
+    ctx.fillRect(x - hr, y - hr, hr * 2, hr * 2);
     ctx.globalCompositeOperation = "source-over";
 
-    // Folded-paper wings: open while gliding, tucked while diving.
     const angle = -Math.atan2(s.vy, s.vx);
     const open = f.holding ? 0.15 : s.grounded ? 0.45 : 0.7 + 0.3 * Math.sin(f.time * 9);
     ctx.save();
@@ -746,12 +939,12 @@ export class Renderer {
 
   private weatherLayer(f: FrameState, wt: number[]): void {
     const { ctx, w, h } = this;
-    // Rain streaks, positions from the clock: no per-drop allocation.
-    if (wt[3] > 0.01) {
-      ctx.strokeStyle = `rgba(220,228,236,${0.35 * wt[3]})`;
+    if (wt[INK] > 0.01) {
+      ctx.strokeStyle = `rgba(220,228,236,${0.35 * wt[INK]})`;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      for (let i = 0; i < 140; i++) {
+      const drops = Math.round(140 * this.fx.density);
+      for (let i = 0; i < drops; i++) {
         const sx = (i * 97.3 + f.time * 60 - this.camX * 0.3) % (w + 80);
         const x = sx < 0 ? sx + w + 80 : sx;
         const y = (i * 53.7 + f.time * (700 + (i % 7) * 60)) % (h + 40);
@@ -759,14 +952,12 @@ export class Renderer {
         ctx.lineTo(x - 40 - 7, y + 4);
       }
       ctx.stroke();
-      // Lightning: a pale flash every so often.
       const phase = f.time % 9.7;
       if (phase < 0.18 && !f.reducedMotion) {
-        ctx.fillStyle = `rgba(240,244,255,${(0.18 - phase) * 1.6 * wt[3]})`;
+        ctx.fillStyle = `rgba(240,244,255,${(0.18 - phase) * 1.6 * wt[INK]})`;
         ctx.fillRect(0, 0, w, h);
       }
     }
-    // Speed lines when the spirit is really flying.
     const sp = (f.speed - 1300) / 1300;
     if (sp > 0 && !f.reducedMotion) {
       ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.25, sp * 0.3)})`;
@@ -789,9 +980,9 @@ export class Renderer {
       if (t.life <= 0) continue;
       t.life -= f.dt;
       const a = Math.min(1, t.life * 2);
-      ctx.font = "600 15px ui-rounded, 'SF Pro Rounded', system-ui, sans-serif";
+      ctx.font = t.big ? "700 20px ui-rounded, 'SF Pro Rounded', system-ui, sans-serif" : "600 15px ui-rounded, 'SF Pro Rounded', system-ui, sans-serif";
       ctx.fillStyle = `rgba(255,255,255,${a})`;
-      ctx.fillText(t.text, this.sx(t.x), this.sy(t.y) - 30 - (1.4 - t.life) * 28);
+      ctx.fillText(t.text, this.sx(t.x), this.sy(t.y) - 30 - ((t.big ? 1.8 : 1.4) - t.life) * 28);
     }
     if (this.banner.life > 0) {
       this.banner.life -= f.dt;

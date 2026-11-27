@@ -89,13 +89,6 @@ body {
   color: var(--soft);
 }
 
-.streak {
-  min-height: 20px;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--warm);
-}
-
 .controls {
   position: absolute;
   top: max(14px, env(safe-area-inset-top));
@@ -143,22 +136,6 @@ textarea:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--warm);
   outline-offset: 3px;
-}
-
-.timer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-#timer-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #ffd39a, #ff8f6b);
-  transform-origin: left;
-  transform: scaleX(0);
 }
 
 .hint {
@@ -416,5 +393,205 @@ a:focus-visible {
   .hint,
   .mark {
     animation: none;
+  }
+}
+
+.light {
+  width: 132px;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.light[hidden] {
+  display: none;
+}
+
+#light-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ff9f6b, #ffe7a8);
+  box-shadow: 0 0 10px rgba(255, 220, 150, 0.8);
+  transform-origin: left;
+  transition: transform 0.25s linear;
+}
+
+.light.low #light-fill {
+  background: linear-gradient(90deg, #ff6b6b, #ffb36b);
+  animation: ember 0.6s ease-in-out infinite;
+}
+
+@keyframes ember {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.mult {
+  margin-top: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--soft);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.4s;
+}
+
+.mult[data-tier="1"] { color: #bfe9ff; }
+.mult[data-tier="2"] { color: #ffd39a; }
+.mult[data-tier="3"] { color: #ffb3f0; text-shadow: 0 0 12px rgba(255, 179, 240, 0.6); }
+
+.best {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--soft);
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (hover: hover) {
+  .controls button {
+    position: relative;
+  }
+  .controls button[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-4px);
+    padding: 5px 9px;
+    border-radius: 8px;
+    background: rgba(10, 12, 30, 0.85);
+    border: 1px solid var(--line);
+    font: 600 12px var(--round);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s, transform 0.15s;
+  }
+  .controls button:hover::after,
+  .controls button:focus-visible::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.panel h3 {
+  margin: 22px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--soft);
+}
+
+.cause {
+  margin: -6px 0 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.final {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.final b {
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.final span {
+  font-size: 14px;
+  color: var(--soft);
+}
+
+.final .new {
+  color: #2a1a07;
+  background: var(--warm);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 800;
+  animation: glow 1.4s ease-in-out infinite;
+}
+
+@keyframes glow {
+  50% {
+    box-shadow: 0 0 18px rgba(255, 211, 154, 0.9);
+  }
+}
+
+.row button.big {
+  min-height: 52px;
+  padding: 0 22px;
+  font-size: 17px;
+}
+
+kbd {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(42, 26, 7, 0.35);
+  font: 700 11px var(--round);
+  opacity: 0.75;
+}
+
+.ach {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ach li {
+  font-size: 13px;
+  opacity: 0.5;
+}
+
+.ach li.got {
+  opacity: 1;
+}
+
+.ach li.got b {
+  color: var(--warm);
+}
+
+.ach span {
+  display: block;
+  font-size: 12px;
+  color: var(--soft);
+}
+
+.slider {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.slider input {
+  width: 100%;
+  accent-color: var(--warm);
+}
+
+@media (max-width: 480px) {
+  .ach {
+    grid-template-columns: 1fr;
+  }
+  .slider {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .final b {
+    font-size: 36px;
   }
 }

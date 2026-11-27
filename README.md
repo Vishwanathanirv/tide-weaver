@@ -7,25 +7,32 @@ A coralctrl game. Free, in the browser, no sign-up.
 ## Play
 
 - **Hold** (Space, click or touch) to dive. Let go to fly.
-- **Perfect dive:** land along a downslope. It keeps your streak and speeds you up.
-- **Rings** give a burst of speed and a bell note.
-- There is no game over. A clumsy landing costs speed, nothing else.
+- **Perfect dive:** land along a downslope. It builds your streak and speeds you up.
+- **Your light** fades as you ride. Perfect dives and rings refill it. When it goes out, the run ends and tells you why.
+- **Flow tiers:** ride without a rough landing to climb from Calm to Flowing, Radiant and Transcendent. Each tier raises the multiplier and brightens your trail.
 
 | Key | Action |
 | --- | --- |
 | Space, click, touch | Dive |
+| Space on the summary | Ride again |
 | P or Esc | Pause |
 | M | Sound |
 | R | Hide the interface (for clean recordings) |
 
+## Modes
+
+- **Journey:** keep your light burning as long as you can. A pillar of light marks your best distance.
+- **Today's wave:** the same wave for everyone until midnight UTC, with a shareable result.
+- **Zen:** no light, no ending. Just the sea and the music.
+
 ## What changes as you play
 
-- **Four art styles, one per minute.** The world drifts from watercolour twilight to neon midnight, paper-cut dawn and ink-wash rain, and crossfades between them.
-- **Four shores, four instruments.** Harp Shallows, Glass Reef, Reed Marsh and Deep Strings each play the melody on a different synthesised instrument.
-- **Six auras** unlock through play: Ember, Tide, Moth, Comet, Lotus and Prism.
-- **Today's wave.** A 2½-minute run on the same wave for everyone until midnight UTC, with a shareable result card.
-- **Seeds.** Every endless wave has a short seed in the URL, so a link replays the same ocean.
-- **Postcards.** Save the current frame with your flow and song as an image.
+- **Five skies, one per minute:** watercolour twilight, a moonlit sea, aurora, paper-cut dawn and ink-wash rain, crossfading as real changes of paint.
+- **A living sea:** ripples on the surface, moon and sun reflections, glowing plankton below, fireflies above and the odd shooting star.
+- **Four shores, four instruments:** Harp Shallows, Glass Reef, Reed Marsh and Deep Strings each play your melody differently.
+- **Six auras** and **13 milestones** unlock through play.
+- **Kilometre markers**, a "past your best" moment, and tips on the first run that move on as you learn.
+- **Seeds and postcards:** every wave has a link that replays it, and any moment can be saved as an image.
 
 ## How it works
 
@@ -40,7 +47,7 @@ A coralctrl game. Free, in the browser, no sign-up.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # physics, terrain, saves, music
+npm test           # physics, run rules, terrain, saves, music
 npm run build      # type-check and build to dist/
 ```
 
