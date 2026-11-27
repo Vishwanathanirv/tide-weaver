@@ -15,6 +15,7 @@ A coralctrl game. Free, in the browser, no sign-up.
 - **Perfect dive:** land along a downslope. It builds your streak and speeds you up.
 - **Zen earns nothing:** no gems and no goals, since nothing there can hurt you.
 - **Surge:** a burst of speed and a ring magnet for a little over a second, for 12% of your light. It recharges in 4.5 s, works on the ground and in the air, and is free in Zen.
+- **Doing nothing costs light:** after about 3 seconds with no press the light drains up to four times faster, distance earns little, and your tier stops climbing. A long jump still counts as play; only sitting still does not.
 - **Your light** fades as you ride. Perfect dives and rings refill it. When it goes out, the run ends and tells you why.
 - **Flow tiers:** ride without a rough landing to climb from Calm to Flowing, Radiant and Transcendent. Each tier raises the multiplier and brightens your trail.
 

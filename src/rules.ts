@@ -14,6 +14,12 @@ export const KM = 10000;
 const DRAIN = 1 / 40;
 const SLOW_DRAIN = 1 / 24;
 const SLOW_SPEED = 380;
+/** Seconds with no press before idleness starts to cost light, and how long it takes to reach full effect. */
+export const IDLE_FREE = 3;
+export const IDLE_RAMP = 3;
+
+/** 0..1: how idle the player is. A long jump with no press is still play; many seconds of nothing is not. */
+export const lazyness = (idle: number): number => Math.min(1, Math.max(0, (idle - IDLE_FREE) / IDLE_RAMP));
 
 export interface Run {
   mode: Mode;
@@ -29,6 +35,8 @@ export interface Run {
   ended: boolean;
   cause: string;
   gentle: boolean;
+  /** Seconds since the player last pressed; set by the game each step. */
+  idle: number;
 }
 
 export interface RunEvents {
@@ -40,7 +48,7 @@ export interface RunEvents {
 }
 
 export function makeRun(mode: Mode, gentle = false): Run {
-  return { mode, light: 1, score: 0, mult: 1, tier: 0, smooth: 0, time: 0, nextKm: 1, roughRecent: 0, slowRecent: 0, ended: false, cause: "", gentle };
+  return { mode, light: 1, score: 0, mult: 1, tier: 0, smooth: 0, time: 0, nextKm: 1, roughRecent: 0, slowRecent: 0, ended: false, cause: "", gentle, idle: 0 };
 }
 
 export function makeRunEvents(): RunEvents {
@@ -48,6 +56,7 @@ export function makeRunEvents(): RunEvents {
 }
 
 function causeOf(r: Run): string {
+  if (r.idle >= IDLE_FREE + IDLE_RAMP) return "The light faded while you weren't pressing. Hold to dive down the slopes.";
   if (r.roughRecent >= 2) return "Rough landings drained your light. Land along the downhill slopes.";
   if (r.slowRecent >= 4) return "You slowed down and the light ran out. Dive into the valleys to keep speed.";
   return "Your light faded. Perfect dives and rings refill it.";
@@ -62,6 +71,7 @@ export function updateRun(r: Run, s: Spirit, ev: StepEvents, dx: number, dt: num
   out.gain = 0;
   if (r.ended) return;
   r.time += dt;
+  const lazy = lazyness(r.idle);
 
   const decay = Math.exp(-dt / 8);
   r.roughRecent *= decay;
@@ -70,7 +80,7 @@ export function updateRun(r: Run, s: Spirit, ev: StepEvents, dx: number, dt: num
   if (slow) r.slowRecent += dt;
 
   // Smoothness: time since the last rough landing decides the tier.
-  r.smooth += dt;
+  if (lazy === 0) r.smooth += dt;
   if (ev.landing === "rough") {
     r.roughRecent += 1;
     if (r.tier > 0) out.tierLost = true;
@@ -85,7 +95,8 @@ export function updateRun(r: Run, s: Spirit, ev: StepEvents, dx: number, dt: num
   }
 
   r.mult = (1 + Math.min(2, s.combo * 0.1)) * (1 + r.tier * 0.25);
-  let gain = dx * 0.02 * r.mult;
+  // Gliding with no input earns very little.
+  let gain = dx * 0.02 * r.mult * (1 - 0.8 * lazy);
   if (s.rail) gain += 60 * dt * r.mult;
   if (ev.landing === "perfect") gain += 100 * s.combo * (1 + r.tier * 0.25);
   if (ev.ring) gain += 250 * ev.ring * r.mult;
@@ -103,7 +114,9 @@ export function updateRun(r: Run, s: Spirit, ev: StepEvents, dx: number, dt: num
     return;
   }
   let d = (slow ? SLOW_DRAIN : DRAIN) * dt;
-  if (r.gentle) d *= 0.35;
+  // The first-run grace never covers sitting still; idleness drains up to four times faster.
+  if (r.gentle && lazy === 0) d *= 0.35;
+  d *= 1 + 3 * lazy;
   r.light -= d;
   if (s.rail) r.light += 0.1 * dt;
   if (ev.landing === "perfect") r.light += 0.1 + Math.min(0.06, s.combo * 0.01);

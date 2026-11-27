@@ -513,7 +513,8 @@ export class Renderer {
     const shot = 1 + 0.1 * this.diveK + 0.07 * this.bars - 0.1 * this.surgeK;
     const targetZoom = clamp((700 / (alt + 700)) * speedZoom, 0.34, 1);
     // The title is a high, wide pan over the sea; pressing play swoops the camera down behind the surfer.
-    if (f.title) this.pan = f.reducedMotion ? this.pan : Math.min(2600, this.pan + f.dt * 170);
+    // On the title the camera only drifts a little either side, so the surfer never leaves the frame.
+    if (f.title) this.pan += ((f.reducedMotion ? 0 : 150 * Math.sin(f.time * 0.3)) - this.pan) * (1 - Math.exp(-f.dt * 2));
     else this.pan += (0 - this.pan) * (1 - Math.exp(-f.dt * 2.2));
     this.zoom = lerp(this.zoom, clamp(this.base * 1.28, 0.6, 1.5) * targetZoom * shot * (1 - 0.3 * f.intro), k);
     // Look ahead: the faster you go, the further left the spirit sits.

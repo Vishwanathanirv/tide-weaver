@@ -369,7 +369,12 @@ const SURGE_KEYS = new Set(["ShiftLeft", "ShiftRight", "KeyX", "KeyE", "ArrowRig
 const HOLD_KEYS = new Set(["Space", "ArrowDown", "KeyS", "KeyW", "ArrowUp", "Enter"]);
 const holding = () => !over && ending < 0 && (pointers.size > 0 || keys.size > 0);
 // Dev only: lets the browser tests ask whether the spirit is being held.
-if (import.meta.env.DEV) (window as unknown as { __tw: unknown }).__tw = { holding, pointers: () => pointers.size };
+if (import.meta.env.DEV) (window as unknown as { __tw: unknown }).__tw = {
+    holding,
+    pointers: () => pointers.size,
+    // Where the spirit is on screen, and what it is doing: for checking it never leaves the frame.
+    screen: () => ({ x: renderer.sx(spirit.x), y: renderer.sy(spirit.y), w: window.innerWidth, h: window.innerHeight, alt: Math.round(spirit.y - terrain.height(spirit.x)), under: spirit.under, rail: !!spirit.rail, whirl: !!spirit.whirl, started, over, titleOn }),
+  };
 
 function wake(): void {
   score.unlock();
@@ -463,6 +468,7 @@ const canSurge = (): boolean => spirit.surgeCd <= 0 && !spirit.under && (mode ==
 /** Second verb. Costs some light (not in Zen) and needs the cooldown to be over. */
 function surgeNow(): void {
   if (paused || over || ending >= 0 || respawn >= 0 || !started) return;
+  idle = 0;
   if (mode !== "zen" && run.light < 0.2) {
     toast("Not enough light to surge");
     return;
@@ -1252,6 +1258,7 @@ function tick(dt: number): void {
   step(spirit, terrain, hold, ev, dt, hazardsOn());
   if (replay) replay.advance(spirit.frames);
   const dx = spirit.x - before;
+  run.idle = idle;
   updateRun(run, spirit, ev, dx, dt, rev);
   tideStep();
   clock += dt;
