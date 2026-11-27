@@ -16,6 +16,7 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - `src/world.ts` drawing for gems, jets, caustics, spikes and tide gates
 - `src/juice.ts` hit-stop clock and callouts (clean, inches, skill issue); never changes physics results
 - `vite.config.ts` also emits `dist/sw.js`: offline precache of exactly the built files, cache name hashed from the list
+- `src/ghost.ts` input log, link codec and `Replay` (a second spirit on its own Terrain); `src/quests.ts` goal pool and rules; `src/gear.ts` boards and scarves; `src/clip.ts` staggered MediaRecorders for 9:16 clips
 - `src/save.ts` dual-slot checksummed save vault, save codes
 - `src/main.ts` loop, input, UI panels, daily wave, auras, sharing
 - `tests/` physics determinism, run rules, juice, terrain, saves, music
@@ -27,4 +28,7 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - No external requests at runtime. The CSP in `vercel.json` allows `'self'` only.
 - The secret aura is awarded only by the observatory reveal (`revealObservatory` in `main.ts`); keep it out of the auras and milestones lists until found.
 - Camera feel (zoom, look-ahead, roll, shots) lives in `Renderer.draw`; roll is clamped to 0.08 rad and the world is scaled so corners never show. Roll is off in calm motion. The banner is drawn outside the roll.
+- Ghosts depend on determinism: anything that changes a run's physics (new input, new per-step state) must be recorded in `Recorder` and replayed in `Replay`, and covered in `tests/ghost.test.ts`. Runs started during the first-run tips are not shareable as ghosts.
+- Board stats (`gear.ts`) feed physics through `makeSpirit(terrain, dive, flip)`; scarves are visual only.
+- Landmark positions come from `landmarkX/landmarkKind` (the gate is exactly on every 5th km). Add new kinds to `KINDS` and `silhouette`.
 - Game balance numbers live at the top of `physics.ts`. Tune them after playing.

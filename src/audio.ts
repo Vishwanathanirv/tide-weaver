@@ -51,6 +51,9 @@ export class Score {
   private padOsc: OscillatorNode[] = [];
   private rainGain!: GainNode;
   private windGain!: GainNode;
+  private whaleGain!: GainNode;
+  private whaleOsc!: OscillatorNode;
+  private tap: MediaStreamAudioDestinationNode | null = null;
   private noise!: AudioBuffer;
   private t0 = 0;
   private slot = -1;
@@ -75,6 +78,10 @@ export class Score {
   }
   get noiseBuffer(): AudioBuffer {
     return this.noise;
+  }
+  /** The mix as a media stream, for recording clips with sound. Null until sound is unlocked. */
+  get stream(): MediaStream | null {
+    return this.tap ? this.tap.stream : null;
   }
   get gridOrigin(): number {
     return this.t0;
@@ -111,6 +118,9 @@ export class Score {
     this.muffle.type = "lowpass";
     this.muffle.frequency.value = 20000;
     this.master.connect(this.muffle).connect(comp).connect(ctx.destination);
+    // A copy of the final mix for the clip recorder.
+    this.tap = ctx.createMediaStreamDestination();
+    comp.connect(this.tap);
 
     const verb = ctx.createConvolver();
     verb.buffer = this.impulse(ctx, 3.2);
@@ -151,6 +161,32 @@ export class Score {
     this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+
+    // The deep: a slow sine and its octave that glide like a whale call, silent until you go down.
+    this.whaleGain = ctx.createGain();
+    this.whaleGain.gain.value = 0;
+    this.whaleOsc = ctx.createOscillator();
+    this.whaleOsc.type = "sine";
+    this.whaleOsc.frequency.value = 74;
+    const whaleHi = ctx.createOscillator();
+    whaleHi.type = "sine";
+    whaleHi.frequency.value = 148;
+    const hiGain = ctx.createGain();
+    hiGain.gain.value = 0.35;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.09;
+    const lfoDepth = ctx.createGain();
+    lfoDepth.gain.value = 16;
+    lfo.connect(lfoDepth);
+    lfoDepth.connect(this.whaleOsc.frequency);
+    lfoDepth.connect(whaleHi.frequency);
+    this.whaleOsc.connect(this.whaleGain);
+    whaleHi.connect(hiGain).connect(this.whaleGain);
+    this.whaleGain.connect(this.music);
+    this.whaleGain.connect(this.send);
+    this.whaleOsc.start();
+    whaleHi.start();
+    lfo.start();
 
     this.rainGain = this.loopNoise("bandpass", 2600, 0.6);
     this.windGain = this.loopNoise("lowpass", 420, 0.4);
@@ -210,13 +246,17 @@ export class Score {
   }
 
   /** Continuous layers, called every frame. */
-  update(speed: number, style: number, rain: number, airborne: boolean): void {
+  update(speed: number, style: number, rain: number, airborne: boolean, air = 0, depth = 0): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const t = ctx.currentTime;
     const sp = Math.min(1, speed / 1800);
-    this.padGain.gain.setTargetAtTime((0.018 + sp * 0.03) * this.padLevel, t, 0.4);
-    this.padFilter.frequency.setTargetAtTime(380 + sp * 1300 + (airborne ? 250 : 0), t, 0.3);
+    // High up the score thins to air and chimes; down in the abyss it warms and the deep sings.
+    this.padGain.gain.setTargetAtTime((0.018 + sp * 0.03) * this.padLevel * (1 - 0.55 * air) * (1 + 0.5 * depth), t, 0.4);
+    this.padFilter.frequency.setTargetAtTime((380 + sp * 1300 + (airborne ? 250 : 0) + air * 1400) * (1 - 0.5 * depth), t, 0.3);
+    this.send.gain.setTargetAtTime(0.42 + 0.38 * air + 0.12 * depth, t, 0.5);
+    this.whaleGain.gain.setTargetAtTime(0.06 * depth * depth + 0.012 * depth, t, 0.8);
+    this.whaleOsc.frequency.setTargetAtTime(66 + 22 * (1 - depth), t, 1.5);
     this.windGain.gain.setTargetAtTime(sp * sp * 0.05, t, 0.2);
     this.rainGain.gain.setTargetAtTime(rain * 0.07, t, 0.8);
     if (style !== this.chord) {
@@ -407,6 +447,64 @@ export class Score {
       if (swell) this.play(d - 5, 0, v * 0.5, base + at * GRID);
     }
     if (swell) this.play(0, 3, 0.7, base);
+  }
+
+  /** A body hitting water: a dropping sub thud and a rush of low noise. `weight` 0..1 is how hard. */
+  thud(weight: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running") return;
+    const w = Math.max(0.1, Math.min(1, weight));
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(95, t);
+    o.frequency.exponentialRampToValueAtTime(34, t + 0.35);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.55 * w, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    o.connect(g).connect(this.notes);
+    o.start(t);
+    o.stop(t + 0.6);
+    const n = ctx.createBufferSource();
+    n.buffer = this.noise;
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.setValueAtTime(900 + 1400 * w, t);
+    f.frequency.exponentialRampToValueAtTime(140, t + 0.5);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.2 * w, t + 0.02);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    n.connect(f).connect(ng).connect(this.notes);
+    n.start(t, Math.random());
+    n.stop(t + 0.65);
+  }
+
+  /** Entering the water at a shallow angle: a silky hiss that rises and fades. */
+  skim(speed: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running") return;
+    const t = ctx.currentTime;
+    const s = ctx.createBufferSource();
+    s.buffer = this.noise;
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.Q.value = 0.9;
+    f.frequency.setValueAtTime(1400, t);
+    f.frequency.exponentialRampToValueAtTime(5200, t + 0.45);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05 + 0.05 * Math.min(1, speed / 1600), t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    s.connect(f).connect(g).connect(this.notes);
+    s.start(t, Math.random());
+    s.stop(t + 0.75);
+  }
+
+  /** A single high bell for the thin air up high. */
+  chime(degree: number, velocity: number): void {
+    this.note(degree, 1, velocity, 1);
   }
 
   /** A Surge: air tearing past and a rising bell, so the burst is felt as well as seen. */

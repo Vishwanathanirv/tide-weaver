@@ -21,6 +21,7 @@ A coralctrl game. Free, in the browser, no sign-up.
 | --- | --- |
 | Space, click, touch | Dive |
 | Shift, X, right-click, second finger | Surge |
+| C | Save the last 10 seconds as a clip |
 | Space on the summary | Ride again |
 | P or Esc | Pause |
 | M | Sound |
@@ -52,6 +53,14 @@ Zen mode keeps every biome but nothing can hurt you.
 
 - **Five skies, one per minute:** watercolour twilight, a moonlit sea, aurora, paper-cut dawn and ink-wash rain, crossfading as real changes of paint.
 - **A camera with moods:** it sits close, leads where you are going, rolls with the slope, pushes in on dives, leans on impacts and drifts slowly while LOCKED IN.
+- **A world with depth:** a lighthouse, sea stack, arch, ruins or wreck every kilometre on a far layer, and at every fifth kilometre a colossal gate with the ribs of something enormous. Dark reeds drift past in front. Mist gathers in the troughs, pollen, embers and spores drift by, and ink rain rings the water.
+- **Traces:** foam stays on the crests you carved, and rings you fly through break into arcs that float on the sea.
+- **The water answers:** a shallow, perfect entry skims with a silky hiss; slamming in flat brings a sub thud, a tall column of water and a shake. Up high the score thins to air and chimes; deep down it warms and a whale-like swell sings.
+- **The rider is the meter:** the scarf shortens and dims as your light fades, and a shimmer runs down the board when a Surge is ready.
+- **Goals:** three goals are always active (breach, dead-centre rings, double backflips, Surges and more). Finish all three to rank up, earn gems and get a harder set.
+- **Workshop:** spend abyss gems on boards that change handling (Anchor dives harder, Feather floats and flips fast) and scarves that lengthen the scarf and the light trail.
+- **Ghost races:** the Challenge link carries your whole run in a few hundred bytes. Whoever opens it races a translucent copy of you on the same wave, with the gap shown live. No server.
+- **Clips:** the last ten seconds are kept in the background. Press C, or tap the button after a big moment, to save a 9:16 video with sound, or share it straight from a phone. Off by default on touch screens; switch in Settings.
 - **Dolphins:** keep a streak of three perfect dives and a pod leaps alongside you.
 - **A living sea:** ripples on the surface, moon and sun reflections, glowing plankton below, fireflies above and the odd shooting star.
 - **Four shores, four instruments:** Harp Shallows, Glass Reef, Reed Marsh and Deep Strings each play your melody differently.

@@ -63,6 +63,9 @@ const COLLAPSE_DEPTH = 120;
 const COLLAPSE_WIDTH = 180;
 const COLLAPSE_STEPS = 36;
 
+/** The last 2 km of every kilometre from the first on: calm water, extra rings, no traps. */
+export const lagoonAt = (x: number): boolean => x >= 8000 && x % KM_UNITS >= KM_UNITS - RING_CHUNK;
+
 export const biomeAt = (x: number): number => (x < KM_UNITS ? 0 : x < KM_UNITS * 2 ? 1 : 2);
 
 /** Spikes stand for the first half of each beat; gates are shut for the second half. */
@@ -179,10 +182,11 @@ export class Terrain {
     if (index > 0) {
       const x0 = index * RING_CHUNK;
       const biome = biomeAt(x0);
+      const lagoon = lagoonAt(x0);
       const n = 1 + Math.floor(r() * 2);
       for (let i = 0; i < n; i++) {
         const x = x0 + 200 + r() * (RING_CHUNK - 400);
-        const trick = biome === 1 && r() < 0.6;
+        const trick = biome === 1 && r() < 0.6 && !lagoon;
         ch.rings.push({ x, y: this.baseHeight(x) + 230 + r() * 420, r: 48, taken: false, closest: Infinity, passed: false, trick, splitAt: -1 });
       }
       // The abyss: gems in the deep and warm jets that push you up.
@@ -192,8 +196,20 @@ export class Terrain {
         ch.gems.push({ x, y: this.baseHeight(x) - 120 - r() * 220, taken: false });
       }
       if (r() < 0.7) ch.jets.push({ x: x0 + 300 + r() * (RING_CHUNK - 700), w: 110 + r() * 60 });
-      if (biome === 1 && r() < 0.75) ch.collapses.push({ x: x0 + 500 + r() * (RING_CHUNK - 1000), at: -1 });
-      if (biome === 2) {
+      if (lagoon) {
+        // A gentle arc of rings and a few more gems: a breather with something to collect.
+        const lr = mulberry32((this.seed ^ Math.imul(index + 11, 0x85ebca6b)) >>> 0);
+        for (let i = 0; i < 3; i++) {
+          const x = x0 + 280 + i * 560 + lr() * 120;
+          ch.rings.push({ x, y: this.baseHeight(x) + 300 + Math.sin(i * 1.3) * 90, r: 54, taken: false, closest: Infinity, passed: false, trick: false, splitAt: -1 });
+        }
+        for (let i = 0; i < 2; i++) {
+          const x = x0 + 300 + lr() * (RING_CHUNK - 600);
+          ch.gems.push({ x, y: this.baseHeight(x) - 130 - lr() * 160, taken: false });
+        }
+      }
+      if (biome === 1 && !lagoon && r() < 0.75) ch.collapses.push({ x: x0 + 500 + r() * (RING_CHUNK - 1000), at: -1 });
+      if (biome === 2 && !lagoon) {
         const sp = 1 + Math.floor(r() * 2);
         for (let i = 0; i < sp; i++) ch.spikes.push({ x: x0 + 250 + r() * (RING_CHUNK - 500), phase: Math.floor(r() * BEAT_STEPS) });
         if (r() < 0.8) ch.gates.push({ x: x0 + 400 + r() * (RING_CHUNK - 800), phase: Math.floor(r() * BEAT_STEPS) });

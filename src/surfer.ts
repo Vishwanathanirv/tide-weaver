@@ -6,6 +6,14 @@
 
 const SEGMENTS = 10;
 
+/** How the rider reads: scarf length from the gear, and the Surge charge. */
+export interface Look {
+  scarf: number;
+  surgeReady: boolean;
+  /** 0..1 while a Surge burns. */
+  surgeOn: number;
+}
+
 export class Surfer {
   private x = new Float32Array(SEGMENTS);
   private y = new Float32Array(SEGMENTS);
@@ -56,7 +64,7 @@ export class Surfer {
    * Draws the rider at screen (sx, sy). `angle` is the board angle in world space (counter-
    * clockwise); `size` scales the figure; `color` is the aura's rgb triple as a css rgb() body.
    */
-  draw(ctx: CanvasRenderingContext2D, sx: number, sy: number, angle: number, size: number, color: string, tuck: boolean, grounded: boolean, under: boolean, speed: number, dt: number, light: number): void {
+  draw(ctx: CanvasRenderingContext2D, sx: number, sy: number, angle: number, size: number, color: string, tuck: boolean, grounded: boolean, under: boolean, speed: number, dt: number, light: number, o: Look): void {
     const rot = -angle;
     const s = size / 10;
     // Scarf anchor: the rider's neck, rotated with the board.
@@ -64,7 +72,9 @@ export class Surfer {
     const ly = (tuck ? -18 : -24) * s;
     const nx = sx + lx * Math.cos(rot) - ly * Math.sin(rot);
     const ny = sy + lx * Math.sin(rot) + ly * Math.cos(rot);
-    this.scarf(nx, ny, speed, under, dt, 5.2 * s);
+    // The scarf is the light made visible: it shortens and dims as the light fades.
+    const lit = 0.4 + 0.6 * light;
+    this.scarf(nx, ny, speed, under, dt, 5.2 * s * o.scarf * lit);
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -96,6 +106,22 @@ export class Surfer {
     ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillRect(-12 * s, -0.8 * s, 24 * s, 1.4 * s);
+    // Surge charge: a shimmer runs down the board when it is ready, and the board burns while it lasts.
+    if (o.surgeOn > 0) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = `rgba(255,255,255,${0.5 + 0.4 * o.surgeOn})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 24 * s, 4.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+    } else if (o.surgeReady) {
+      const p = (performance.now() / 900) % 1;
+      const gx = (-18 + 36 * p) * s;
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillRect(gx - 2 * s, -2.4 * s, 4 * s, 4.8 * s);
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.fillRect(gx - 6 * s, -2.4 * s, 12 * s, 4.8 * s);
+    }
 
     // The rider: crouched for speed, tucked tight in a flip.
     const knee = tuck ? 14 : grounded ? 9 : 7;

@@ -1,10 +1,11 @@
 import type { Spirit } from "./physics";
 import { RING_CHUNK, type Terrain } from "./terrain";
 import type { Aura } from "./save";
+import type { Look } from "./surfer";
 import { mulberry32 } from "./rng";
 import type { CalloutKind } from "./juice";
 import { Surfer } from "./surfer";
-import { abyss, birds, caustics, hazards, observatory, pod, props, type View } from "./world";
+import { abyss, birds, caustics, foreground, hazards, landmarks, observatory, pod, props, type View } from "./world";
 
 type RGB = [number, number, number];
 
@@ -203,7 +204,14 @@ export interface FrameState {
   surge: number;
   /** Perfect-dive streak, which calls the dolphins. */
   streak: number;
+  /** Scarf length from the worn gear, and whether a Surge is ready. */
+  scarf: number;
+  surgeReady: boolean;
+  /** Another player's ghost, in world space, with its fade (0..1); null when there is none. */
+  ghost: { x: number; y: number; angle: number; a: number } | null;
 }
+
+const TRAIL_MAX = 120;
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -218,7 +226,16 @@ export class Renderer {
   private ridge = new Float32Array(512);
   private sea = new Float32Array(512);
   private seaN = 0;
-  private trail = new Float32Array(96);
+  private trail = new Float32Array(TRAIL_MAX * 2);
+  private trailCap = 48;
+  private look: Look = { scarf: 1, surgeReady: false, surgeOn: 0 };
+  /** Foam left on the crests you carved, and ring fragments floating on the water. */
+  private foamX = new Float32Array(160);
+  private foamAge = new Float32Array(160).fill(99);
+  private foamSize = new Float32Array(160);
+  private foamHead = 0;
+  private shard = new Float32Array(64 * 6);
+  private shardHead = 0;
   private trailHead = 0;
   private trailLen = 0;
   readonly fx = new Particles();
@@ -305,8 +322,38 @@ export class Renderer {
   pushTrail(x: number, y: number): void {
     this.trail[this.trailHead * 2] = x;
     this.trail[this.trailHead * 2 + 1] = y;
-    this.trailHead = (this.trailHead + 1) % 48;
-    if (this.trailLen < 48) this.trailLen++;
+    this.trailHead = (this.trailHead + 1) % TRAIL_MAX;
+    if (this.trailLen < this.trailCap) this.trailLen++;
+  }
+
+  /** Longer light trail for some scarves. */
+  setTrail(mult: number): void {
+    this.trailCap = clamp(Math.round(48 * mult), 24, TRAIL_MAX);
+    this.trailLen = Math.min(this.trailLen, this.trailCap);
+  }
+
+  /** Foam that lingers on the crest you just carved. */
+  foam(x: number, size: number): void {
+    const i = this.foamHead;
+    this.foamHead = (i + 1) % 160;
+    this.foamX[i] = x;
+    this.foamAge[i] = 0;
+    this.foamSize[i] = size;
+  }
+
+  /** A ring you flew through breaks into arcs that fall to the water and float there. */
+  shardRing(x: number, y: number): void {
+    for (let k = 0; k < 8; k++) {
+      const i = this.shardHead * 6;
+      this.shardHead = (this.shardHead + 1) % 64;
+      const a = (k / 8) * Math.PI * 2 + Math.random() * 0.4;
+      this.shard[i] = x + Math.cos(a) * 40;
+      this.shard[i + 1] = y + Math.sin(a) * 40;
+      this.shard[i + 2] = Math.cos(a) * 170 + 80;
+      this.shard[i + 3] = Math.sin(a) * 170 + 90;
+      this.shard[i + 4] = 0;
+      this.shard[i + 5] = a;
+    }
   }
 
   resetTrail(): void {
@@ -462,11 +509,12 @@ export class Renderer {
       ctx.translate(-w / 2, -h / 2);
     }
     this.sky(f, wt);
-    this.mountains(wt);
     this.view.ctx = ctx;
     this.view.w = w;
     this.view.h = h;
     this.view.scale = this.scale;
+    // Landmarks stand between the far and middle ranges.
+    this.mountains(wt, () => landmarks(this.view, this.camX, ground, f.time, mixPal(wt, (p) => p.skyBot, this.tmp), wt[MOON] + wt[AUR] * 0.9 + wt[TW] * 0.35));
     birds(this.view, f.time, wt[3] + wt[4] > 0.5);
     if (f.obsA > 0) observatory(this.view, f.obsX, f.obsY, f.time, f.obsA);
     this.bestMarker(f);
@@ -481,11 +529,16 @@ export class Renderer {
     abyss(this.view, f.terrain, f.time);
     hazards(this.view, f.terrain, f.frame, f.hazardsLive);
     props(this.view, f.terrain, f.time);
+    this.traces(f);
+    this.mist(f, wt);
     this.podA = ease(this.podA, f.streak >= 3 ? 1 : 0, f.streak >= 3 ? 1.2 : 0.6);
     if (this.podA > 0.02) pod(this.view, f.terrain, px, f.time, this.podA);
     this.trailLayer(f, px, py);
+    this.ghostLayer(f);
     this.particlesLayer(f, wt);
     this.spiritLayer(f, px, py);
+    this.motes(f, wt);
+    foreground(this.view, this.camX, f.time, mixPal(wt, (p) => p.skyBot, this.tmp));
     this.weatherLayer(f, wt);
     this.textLayer(f);
     ctx.restore();
@@ -672,13 +725,14 @@ export class Renderer {
     ctx.fill();
   }
 
-  private mountains(wt: number[]): void {
+  private mountains(wt: number[], between?: () => void): void {
     const { ctx, w, h } = this;
     const step = 12;
     const n = Math.min(255, Math.ceil(w / step) + 2);
     const ms = lerp(1, this.scale / this.base, 0.35);
     const parallax = [0.06, 0.14, 0.28];
     for (let layer = 0; layer < 3; layer++) {
+      if (layer === 1) between?.();
       const amp = h * (0.2 - layer * 0.035) * ms;
       const baseY = h * (0.5 + layer * 0.07) + (1 - ms) * h * 0.08;
       const off = this.camX * parallax[layer] * 0.6;
@@ -985,7 +1039,7 @@ export class Renderer {
         x = px;
         y = py;
       } else {
-        const idx = (this.trailHead - this.trailLen + i + 48) % 48;
+        const idx = (this.trailHead - this.trailLen + i + TRAIL_MAX) % TRAIL_MAX;
         x = this.trail[idx * 2];
         y = this.trail[idx * 2 + 1];
       }
@@ -1084,7 +1138,10 @@ export class Renderer {
     ctx.fillRect(x - hr, y - hr, hr * 2, hr * 2);
     ctx.globalCompositeOperation = "source-over";
 
-    this.surfer.draw(ctx, x, y, s.angle, size, `${halo[0] | 0},${halo[1] | 0},${halo[2] | 0}`, f.holding && !s.grounded && !s.under, s.grounded, s.under, f.speed, f.dt, f.light);
+    this.look.scarf = f.scarf;
+    this.look.surgeReady = f.surgeReady;
+    this.look.surgeOn = f.surge;
+    this.surfer.draw(ctx, x, y, s.angle, size, `${halo[0] | 0},${halo[1] | 0},${halo[2] | 0}`, f.holding && !s.grounded && !s.under, s.grounded, s.under, f.speed, f.dt, f.light, this.look);
     // Diving: chevrons under the spirit show that your press is pulling it down.
     if (f.holding) {
       const pulse = 0.55 + 0.45 * Math.sin(f.time * 14);
@@ -1103,6 +1160,181 @@ export class Renderer {
       ctx.globalAlpha = 1;
       ctx.lineCap = "butt";
     }
+  }
+
+  /** Foam on carved crests and the fragments of rings, both fading slowly. */
+  private traces(f: FrameState): void {
+    const { ctx, w } = this;
+    const T = f.terrain;
+    for (let i = 0; i < 160; i++) {
+      const age = this.foamAge[i];
+      if (age >= 7) continue;
+      this.foamAge[i] = age + f.dt;
+      const x = this.foamX[i];
+      const sx = this.sx(x);
+      if (sx < -80 || sx > w + 80) continue;
+      const wd = this.foamSize[i] * (1 + age * 0.18) * this.scale;
+      ctx.fillStyle = `rgba(236,247,255,${(1 - age / 7) * 0.5})`;
+      ctx.beginPath();
+      ctx.ellipse(sx, this.sy(T.height(x)) + 2, wd, Math.max(1.2, wd * 0.14), 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineWidth = Math.max(2, 3 * this.scale);
+    ctx.lineCap = "round";
+    for (let i = 0; i < 64; i++) {
+      const o = i * 6;
+      const age = this.shard[o + 4];
+      if (age >= 9) continue;
+      this.shard[o + 4] = age + f.dt;
+      let x = this.shard[o];
+      let y = this.shard[o + 1];
+      let vx = this.shard[o + 2];
+      let vy = this.shard[o + 3];
+      const surface = T.height(x);
+      if (y > surface + 3) vy -= 650 * f.dt;
+      else {
+        // On the water the pieces bob and drift, slowing down.
+        y = surface + Math.sin(f.time * 2 + i) * 3;
+        vy = 0;
+        vx *= Math.exp(-f.dt * 0.8);
+      }
+      x += vx * f.dt;
+      y += vy * f.dt;
+      this.shard[o] = x;
+      this.shard[o + 1] = y;
+      this.shard[o + 2] = vx;
+      this.shard[o + 3] = vy;
+      const sx = this.sx(x);
+      if (sx < -40 || sx > w + 40) continue;
+      ctx.strokeStyle = `rgba(255,214,140,${Math.min(1, (9 - age) / 2) * 0.85})`;
+      ctx.beginPath();
+      ctx.arc(sx, this.sy(y), 11 * this.scale, this.shard[o + 5] + age * 1.4, this.shard[o + 5] + age * 1.4 + 0.95);
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt";
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  /** Mist that gathers in the troughs of the waves. */
+  private mist(f: FrameState, wt: number[]): void {
+    const k = wt[TW] * 0.5 + wt[MOON] * 0.9 + wt[AUR] * 0.7 + wt[PAPER] * 0.45 + wt[INK] * 0.5;
+    if (k < 0.02) return;
+    const { ctx, w } = this;
+    const T = f.terrain;
+    const col = mixPal(wt, (p) => p.skyBot, this.tmp2);
+    const step = 28;
+    for (let layer = 0; layer < 2; layer++) {
+      ctx.beginPath();
+      for (let x = -step; x <= w + step; x += step) {
+        const wx = this.wx(x);
+        const h0 = T.height(wx);
+        const valley = clamp(((T.height(wx - 300) + T.height(wx + 300)) / 2 - h0) / 120, 0, 1);
+        const lift = (22 + valley * (90 + layer * 45)) * this.scale * (0.85 + 0.15 * Math.sin(f.time * 0.35 + wx * 0.003 + layer * 2));
+        const y = this.sy(h0) - lift;
+        if (x === -step) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      for (let x = w + step; x >= -step; x -= step) ctx.lineTo(x, this.sy(T.height(this.wx(x))) + 6);
+      ctx.closePath();
+      ctx.fillStyle = css(col, 0.14 * k * (1 - layer * 0.35));
+      ctx.fill();
+    }
+  }
+
+  /** Drifting pollen, embers and spores in front of the world, and rain landing on the water. */
+  private motes(f: FrameState, wt: number[]): void {
+    const { ctx, w, h } = this;
+    const total = wt[TW] + wt[PAPER] + wt[AUR];
+    if (total > 0.05) {
+      const n = Math.round(34 * this.fx.density);
+      const wr = wt[TW] * 255 + wt[PAPER] * 255 + wt[AUR] * 150;
+      const wg = wt[TW] * 226 + wt[PAPER] * 150 + wt[AUR] * 255;
+      const wb = wt[TW] * 150 + wt[PAPER] * 80 + wt[AUR] * 205;
+      ctx.fillStyle = `rgb(${(wr / total) | 0},${(wg / total) | 0},${(wb / total) | 0})`;
+      ctx.globalCompositeOperation = "lighter";
+      const span = w + 60;
+      for (let i = 0; i < n; i++) {
+        const sp = 0.5 + (i % 5) * 0.25;
+        const x = ((((i * 211.3 - f.time * 14 * sp - this.camX * 0.35 * this.scale) % span) + span) % span) - 30;
+        const y = h * (0.2 + ((i * 37) % 65) / 100) + Math.sin(f.time * 0.8 + i * 1.7) * 16 - wt[PAPER] * ((f.time * 26 * sp + i * 41) % (h * 0.35));
+        ctx.globalAlpha = clamp(0.2 + 0.3 * Math.sin(f.time * 2 + i), 0.05, 0.6) * Math.min(1, total);
+        ctx.beginPath();
+        ctx.arc(x, y, (1.1 + (i % 3) * 0.7) * clamp(this.scale, 0.6, 1.4), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+    }
+    if (wt[INK] > 0.05) {
+      // Rain landing on the water: small rings on the surface.
+      ctx.strokeStyle = "rgb(230,238,246)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 18; i++) {
+        const sxp = (i * 173.7) % w;
+        const ph = (f.time * 1.6 + i * 0.37) % 1;
+        const r = (3 + ph * 10) * this.scale;
+        ctx.globalAlpha = (1 - ph) * 0.5 * wt[INK];
+        ctx.beginPath();
+        ctx.ellipse(sxp, this.sy(f.terrain.height(this.wx(sxp))) + 1, r, r * 0.28, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /** Another player's run, replayed beside you: a pale rider with a halo, or an arrow at the edge. */
+  private ghostLayer(f: FrameState): void {
+    const g = f.ghost;
+    if (!g || g.a <= 0.01) return;
+    const { ctx, w, h } = this;
+    const sx = this.sx(g.x);
+    const sy = this.sy(g.y);
+    ctx.globalAlpha = g.a;
+    if (sx < -40 || sx > w + 40) {
+      const x = sx < 0 ? 22 : w - 22;
+      const y = clamp(sy, 70, h - 70);
+      const dir = sx < 0 ? -1 : 1;
+      ctx.fillStyle = "rgba(190,230,255,0.85)";
+      ctx.beginPath();
+      ctx.moveTo(x + dir * 10, y);
+      ctx.lineTo(x - dir * 8, y - 9);
+      ctx.lineTo(x - dir * 8, y + 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      return;
+    }
+    const size = 10 * clamp(this.scale * 1.1, 0.75, 1.5);
+    const hr = size * 2.4;
+    ctx.globalCompositeOperation = "lighter";
+    const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, hr);
+    grad.addColorStop(0, "rgba(170,220,255,0.45)");
+    grad.addColorStop(1, "rgba(170,220,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(sx - hr, sy - hr, hr * 2, hr * 2);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(-g.angle);
+    const s = size / 10;
+    ctx.fillStyle = "rgba(190,230,255,0.7)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 17 * s, 2.6 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(190,230,255,0.6)";
+    ctx.lineWidth = 4 * s;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-4 * s, -2 * s);
+    ctx.lineTo(-1 * s, -13 * s);
+    ctx.lineTo(1.5 * s, -23 * s);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(210,238,255,0.75)";
+    ctx.beginPath();
+    ctx.arc(2.5 * s, -28 * s, 4.4 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   private weatherLayer(f: FrameState, wt: number[]): void {

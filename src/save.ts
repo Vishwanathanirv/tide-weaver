@@ -3,6 +3,9 @@
  * half-written slot falls back to the other, and progress travels between devices or builds as a
  * copyable save code.
  */
+import { BOARD_IDS, SCARF_IDS } from "./gear";
+import { QUEST_IDS, deal, targetFor, type Counter, type Quest } from "./quests";
+
 export const AURAS = ["ember", "tide", "moth", "comet", "lotus", "prism", "starlight"] as const;
 export type Aura = (typeof AURAS)[number];
 
@@ -37,6 +40,19 @@ export interface SaveData {
   shake: number;
   /** Lightning, beat lifts and other full-screen flashes. */
   flashes: boolean;
+  /** Abyss gems in the bank, spent in the workshop. */
+  bank: number;
+  /** Gear ids owned, and the ones worn. */
+  owned: string[];
+  board: string;
+  scarf: string;
+  /** Goal rank and the three active goals. */
+  rank: number;
+  quests: Quest[];
+  /** -1 lets the five skies change every minute; 0 to 4 fixes one. */
+  sky: number;
+  /** Keep the last ten seconds in the background so one tap can save a vertical clip. */
+  clips: boolean;
 }
 
 export interface KV {
@@ -67,6 +83,14 @@ export function defaults(): SaveData {
     lightParticles: false,
     shake: 1,
     flashes: true,
+    bank: 0,
+    owned: ["wake", "plain"],
+    board: "wake",
+    scarf: "plain",
+    rank: 0,
+    sky: -1,
+    quests: deal(0),
+    clips: false,
   };
 }
 
@@ -82,6 +106,20 @@ export function checksum(text: string): string {
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : d);
 const isAura = (v: unknown): v is Aura => typeof v === "string" && (AURAS as readonly string[]).includes(v);
 
+function cleanQuests(raw: unknown, rank: number): Quest[] {
+  if (!Array.isArray(raw)) return deal(rank);
+  const seen = new Set<string>();
+  const out: Quest[] = [];
+  for (const q of raw) {
+    if (!q || typeof q !== "object") continue;
+    const o = q as Record<string, unknown>;
+    if (typeof o.id !== "string" || !(QUEST_IDS as string[]).includes(o.id) || seen.has(o.id)) continue;
+    seen.add(o.id);
+    out.push({ id: o.id as Counter, target: targetFor(o.id as Counter, rank), done: o.done === true });
+  }
+  return out.length === 3 ? out : deal(rank);
+}
+
 /** Accept only well-formed fields; anything missing or wrong falls back to defaults. */
 export function sanitize(raw: unknown): SaveData {
   const d = defaults();
@@ -91,6 +129,9 @@ export function sanitize(raw: unknown): SaveData {
   const unlocked = Array.isArray(r.unlocked) ? r.unlocked.filter(isAura) : [];
   if (!unlocked.includes("ember")) unlocked.unshift("ember");
   const aura = isAura(r.aura) && unlocked.includes(r.aura) ? r.aura : "ember";
+  const ownedRaw = Array.isArray(r.owned) ? r.owned.filter((g): g is string => typeof g === "string") : [];
+  const owned = [...new Set(["wake", "plain", ...ownedRaw.filter((g) => BOARD_IDS.includes(g) || SCARF_IDS.includes(g))])];
+  const rank = Math.min(99, Math.floor(num(r.rank, 0)));
   const daily = r.daily && typeof r.daily === "object" ? (r.daily as Record<string, unknown>) : null;
   return {
     version: 1,
@@ -118,6 +159,14 @@ export function sanitize(raw: unknown): SaveData {
     lightParticles: r.lightParticles === true,
     shake: Math.min(1, num(r.shake, d.shake)),
     flashes: r.flashes !== false,
+    bank: Math.floor(num(r.bank, 0)),
+    owned,
+    board: owned.includes(String(r.board)) && BOARD_IDS.includes(String(r.board)) ? String(r.board) : "wake",
+    scarf: owned.includes(String(r.scarf)) && SCARF_IDS.includes(String(r.scarf)) ? String(r.scarf) : "plain",
+    rank,
+    sky: typeof r.sky === "number" && Number.isInteger(r.sky) && r.sky >= -1 && r.sky <= 4 ? r.sky : -1,
+    quests: cleanQuests(r.quests, rank),
+    clips: typeof r.clips === "boolean" ? r.clips : d.clips,
     daily: daily && typeof daily.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(daily.day) ? { day: daily.day, best: num(daily.best, 0) } : null,
   };
 }

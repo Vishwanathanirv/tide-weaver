@@ -9,6 +9,10 @@ import { AURAS, exportCode, importCode, Vault, type Aura, type KV, type SaveData
 import { Terrain, ZONES, BIOMES, biomeAt } from "./terrain";
 import { LoFi } from "./lofi";
 import { Juice } from "./juice";
+import { BOARDS, SCARVES, boardOf, scarfOf } from "./gear";
+import { GEMS_PER_GOAL, GEMS_PER_RANK, allDone, check, deal, emptyCounters, questText, type Counters } from "./quests";
+import { Recorder, Replay, decode, encode, type Ghost } from "./ghost";
+import { ClipRecorder, clipsSupported } from "./clip";
 
 const CYCLE = 60;
 const BLEND = 5;
@@ -104,6 +108,8 @@ ui.innerHTML = `
     <div class="mult" id="mult"></div>
     <div class="chain" id="chain" aria-live="polite"></div>
     <div class="best" id="best"></div>
+    <div class="ghostbar" id="ghostbar" hidden></div>
+    <ul class="goalbar" id="goalbar" aria-label="Goals"></ul>
   </header>
   <nav class="controls" aria-label="Game">
     <button id="b-sound" aria-label="Sound" data-tip="Sound · M">${icon(save.muted ? ICON.mute : ICON.sound)}</button>
@@ -113,6 +119,7 @@ ui.innerHTML = `
   </nav>
   <div class="trip" id="trip" aria-hidden="true"><i id="trip-fill"></i><span style="left:33.3%"></span><span style="left:66.6%"></span><b id="trip-name">Twilight Shallows</b></div>
   <p class="hint" id="hint" hidden></p>
+  <button class="clipbtn" id="clip" hidden>Save clip <kbd>C</kbd></button>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <a class="tag" href="./" aria-label="coralctrl">a coralctrl game</a>
   <div class="scrim" id="scrim" hidden>
@@ -133,6 +140,9 @@ const hintEl = $("hint");
 const scrim = $("scrim");
 const panel = $("panel");
 const toastEl = $("toast");
+const goalBar = $("goalbar");
+const ghostBar = $("ghostbar");
+const clipBtn = $("clip");
 
 // ---------------------------------------------------------------- run state
 
@@ -141,6 +151,9 @@ const today = utcDay();
 let mode: Mode = params.get("d") === today ? "daily" : params.get("zen") === "1" ? "zen" : "journey";
 const cleanSeed = (s: string | null) => (s && /^[a-z0-9-]{1,24}$/i.test(s) ? s.toLowerCase() : null);
 let seedLabel = cleanSeed(params.get("seed")) ?? Math.random().toString(36).slice(2, 8);
+
+const gm = /^#g=([A-Za-z0-9_-]+)$/.exec(location.hash);
+const linkGhost: Ghost | null = gm ? decode(gm[1]) : null;
 
 let terrain!: Terrain;
 let spirit!: Spirit;
@@ -172,6 +185,26 @@ let obsX = 0;
 let obsY = 0;
 let obsA = 0;
 let obsSeen = false;
+/** Goals count things within one run. */
+let counters: Counters = emptyCounters();
+/** Everything needed to replay this run as someone else's ghost. */
+const rec = new Recorder();
+let recValid = false;
+let runBoard = save.board;
+let runSeed = 0;
+let saving = false;
+let hudFrame = 0;
+let endFrame = -1;
+/** A friend's ghost from the link, replayed beside you on the same wave. */
+let replay: Replay | null = null;
+let ghostFade = 1;
+let ghostToasted = false;
+const ghostView = { x: 0, y: 0, angle: 0, a: 0 };
+let scarfLen = 1;
+const clips = new ClipRecorder(() => score.stream);
+let clipUntil = 0;
+let clipShade: CanvasGradient | null = null;
+let clipHinted = false;
 const weights = new Array(STYLE_COUNT).fill(0);
 weights[0] = 1;
 
@@ -208,7 +241,10 @@ function bestFlow(): number {
 function newRun(retry = false): void {
   const seed = mode === "daily" ? hashString("daily:" + today) : hashString("seed:" + seedLabel);
   terrain = new Terrain(seed);
-  spirit = makeSpirit(terrain);
+  if (allDone(save.quests)) save.quests = deal(save.rank, 3, Math.random);
+  const board = boardOf(save.board);
+  runBoard = board.id;
+  spirit = makeSpirit(terrain, board.dive, board.flip);
   if (import.meta.env.DEV && params.get("km")) {
     // Dev only: start further out to inspect later biomes.
     spirit.x = spirit.px = Number(params.get("km")) * 10000;
@@ -217,6 +253,19 @@ function newRun(retry = false): void {
   // Dev only: ?streak=N starts with that streak, to look at the dolphins.
   if (import.meta.env.DEV && params.get("streak")) spirit.combo = Number(params.get("streak"));
   run = makeRun(mode, tip !== -1);
+  counters = emptyCounters();
+  rec.reset();
+  // A run can only be replayed if its hazards were the same from the first press to the last.
+  recValid = tip === -1;
+  endFrame = -1;
+  runSeed = seed;
+  replay = linkGhost && linkGhost.seed === seed ? new Replay(linkGhost, seed) : null;
+  ghostFade = 1;
+  if (replay && !ghostToasted) {
+    ghostToasted = true;
+    toast(`Racing a ghost · ${fmt(linkGhost!.score)} flow`);
+  }
+  applyGear();
   clock = 0;
   over = false;
   ending = -1;
@@ -241,6 +290,8 @@ function newRun(retry = false): void {
   persist();
   const url = new URL(location.href);
   url.search = mode === "daily" ? `?d=${today}` : `?seed=${seedLabel}${mode === "zen" ? "&zen=1" : ""}`;
+  // A ghost only belongs to the wave it was recorded on.
+  if (!replay) url.hash = "";
   history.replaceState(null, "", url);
 }
 
@@ -260,6 +311,87 @@ function wake(): void {
   score.unlock();
   score.setMuted(save.muted);
   score.setVolumes(save.musicVolume, save.notesVolume);
+  syncClips();
+}
+
+/** Starts or stops the background clip recorder to match the setting. */
+function syncClips(): void {
+  if (save.clips && clipsSupported() && score.stream) clips.start();
+  else if (!save.clips) clips.stop();
+}
+
+function applyGear(): void {
+  const sc = scarfOf(save.scarf);
+  renderer.setTrail(sc.trail);
+  scarfLen = sc.scarf;
+}
+
+function clipMoment(): void {
+  if (clips.active) clipUntil = performance.now() + 9000;
+  else if (!clipHinted && clipsSupported() && !save.clips) {
+    clipHinted = true;
+    toast("Nice. Turn on the clip recorder in Settings to save moments like this");
+  }
+}
+
+async function saveClip(): Promise<void> {
+  if (saving) return;
+  saving = true;
+  try {
+    await saveClipNow();
+  } finally {
+    saving = false;
+  }
+}
+
+async function saveClipNow(): Promise<void> {
+  const c = await clips.save();
+  if (!c) {
+    toast(clips.active ? "Nothing recorded yet" : "Clip recorder is off in Settings");
+    return;
+  }
+  clipUntil = 0;
+  const file = new File([c.blob], `tide-weaver-clip.${c.ext}`, { type: c.blob.type });
+  if (navigator.canShare?.({ files: [file] }) && matchMedia("(pointer: coarse)").matches) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch {
+      /* cancelled: download instead */
+    }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(c.blob);
+  a.download = file.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast(`Clip saved · ${c.seconds} s`);
+}
+
+/** Draws the last frame into the vertical clip canvas: a 9:16 crop that follows the spirit. */
+function drawClip(): void {
+  const c = clips.ctx;
+  const cw = clips.canvas.width;
+  const ch = clips.canvas.height;
+  const srcH = canvas.height;
+  const srcW = Math.min(canvas.width, Math.round((srcH * 9) / 16));
+  const dpr = canvas.width / Math.max(1, window.innerWidth);
+  const a = paused ? 1 : acc / STEP;
+  const x0 = Math.max(0, Math.min(canvas.width - srcW, renderer.sx(spirit.px + (spirit.x - spirit.px) * a) * dpr - srcW * 0.42));
+  c.drawImage(canvas, x0, 0, srcW, srcH, 0, 0, cw, ch);
+  if (!clipShade) {
+    clipShade = c.createLinearGradient(0, ch * 0.82, 0, ch);
+    clipShade.addColorStop(0, "rgba(0,0,0,0)");
+    clipShade.addColorStop(1, "rgba(0,0,0,0.6)");
+  }
+  c.fillStyle = clipShade;
+  c.fillRect(0, ch * 0.82, cw, ch * 0.18);
+  c.fillStyle = "rgba(255,255,255,0.9)";
+  c.textAlign = "left";
+  c.font = "600 22px ui-serif, Georgia, serif";
+  c.fillText("TIDE-WEAVER", 28, ch - 56);
+  c.font = "700 34px ui-rounded, system-ui, sans-serif";
+  c.fillText(`${fmt(run.score)} flow`, 28, ch - 18);
 }
 
 /** Second verb. Costs some light (not in Zen) and needs the cooldown to be over. */
@@ -270,6 +402,8 @@ function surgeNow(): void {
     return;
   }
   if (!surge(spirit)) return;
+  if (recValid) rec.surge(spirit.frames);
+  counters.surge++;
   if (mode !== "zen") run.light = Math.max(0, run.light - 0.12);
   save.stats.surges++;
   score.surge();
@@ -337,7 +471,8 @@ window.addEventListener("keydown", (e) => {
   } else if (SURGE_KEYS.has(e.code)) {
     e.preventDefault();
     surgeNow();
-  } else if (e.code === "KeyM") toggleSound();
+  } else if (e.code === "KeyC") void saveClip();
+  else if (e.code === "KeyM") toggleSound();
   else if (e.code === "KeyR") document.body.classList.toggle("clean");
 });
 window.addEventListener("keyup", (e) => keys.delete(e.code));
@@ -381,9 +516,25 @@ const SONG = "▁▂▃▄▅▆▇█";
 const songStrip = () => score.song.map((d) => SONG[Math.min(7, Math.floor((d / 15) * 8))]).join("") || "▁";
 const modeName = () => (mode === "daily" ? `Today's wave · ${today}` : mode === "zen" ? `Zen · wave ${seedLabel}` : `Journey · wave ${seedLabel}`);
 
-function shareUrl(): string {
+function baseUrl(): string {
   const u = new URL(location.href);
   u.hash = "";
+  return u.toString();
+}
+
+/** This run as a ghost code, or null if it cannot be replayed (first-run tips, or nothing recorded). */
+function ghostCode(): string | null {
+  if (!recValid || rec.length === 0) return null;
+  let end = endFrame >= 0 ? endFrame : spirit.frames;
+  if (rec.full) end = Math.min(end, rec.lastFrame + 120);
+  return encode({ seed: runSeed, hazards: mode !== "zen", board: runBoard, score: Math.floor(run.score), end, frames: rec.frames, kinds: rec.kinds });
+}
+
+/** The link includes the ghost, so whoever opens it races this run. */
+function shareUrl(): string {
+  const g = ghostCode();
+  const u = new URL(baseUrl());
+  if (g) u.hash = "g=" + g;
   return u.toString();
 }
 
@@ -445,7 +596,7 @@ function postcard(): void {
   x.fillText(`${fmt(run.score)} flow`, 36 * s, c.height - 44 * s);
   x.font = `500 ${16 * s}px ui-rounded, system-ui, sans-serif`;
   x.globalAlpha = 0.8;
-  x.fillText(`${songStrip()}   ${shareUrl().replace(/^https?:\/\//, "")}`, 36 * s, c.height - 16 * s);
+  x.fillText(`${songStrip()}   ${baseUrl().replace(/^https?:\/\//, "")}`, 36 * s, c.height - 16 * s);
   c.toBlob((b) => {
     if (!b) return;
     const a = document.createElement("a");
@@ -483,6 +634,10 @@ function openPause(): void {
       <button data-act="auras">Auras & milestones</button>
       <button data-act="settings">Settings</button>
     </div>
+    <div class="row">
+      <button data-act="goals">Goals · rank ${save.rank + 1}</button>
+      <button data-act="workshop">Workshop · ${save.bank} gems</button>
+    </div>
     <p class="small">${mode === "zen" ? "Zen: no light to keep, the waves go on forever." : "Perfect dives and rings refill your light. Keep it burning."}</p>
   `);
 }
@@ -511,6 +666,45 @@ function openAuras(): void {
   `);
 }
 
+const gemsLine = () => `<p class="small">${fmt(save.bank)} abyss gems. Gems come from the deep, from goals and from ranking up.</p>`;
+
+function openGoals(): void {
+  const items = save.quests
+    .map((q) => {
+      const cur = Math.min(q.target, counters[q.id]);
+      return `<li class="${q.done ? "got" : ""}"><b>${q.done ? "✦" : "·"} ${questText(q)}</b><span>${q.done ? "Done" : `this run ${cur}/${q.target}`}</span></li>`;
+    })
+    .join("");
+  openPanel(`
+    <h2 id="panel-title">Goals · rank ${save.rank + 1}</h2>
+    <ul class="ach goals">${items}</ul>
+    <p class="small">Each goal pays ${GEMS_PER_GOAL} gems. All three: rank up, ${GEMS_PER_RANK} gems and a harder set.</p>
+    ${gemsLine()}
+    <div class="row"><button data-act="workshop">Workshop</button><button class="primary" data-act="back" data-autofocus>Back</button></div>
+  `);
+}
+
+function gearCard(kind: "board" | "scarf", id: string, name: string, note: string, price: number): string {
+  const owned = save.owned.includes(id);
+  const worn = (kind === "board" ? save.board : save.scarf) === id;
+  const status = worn ? "Wearing" : owned ? "Wear" : `${price} gems`;
+  const can = owned || save.bank >= price;
+  return `<button class="aura ${worn ? "on" : ""}" data-gear="${kind}:${id}" aria-pressed="${worn}" ${can ? "" : "data-poor"}><i class="swatch sw-${kind}" aria-hidden="true"></i><b>${name}</b><span>${note} · ${status}</span></button>`;
+}
+
+function openWorkshop(): void {
+  openPanel(`
+    <h2 id="panel-title">Workshop</h2>
+    ${gemsLine()}
+    <h3>Boards</h3>
+    <div class="auras">${BOARDS.map((b) => gearCard("board", b.id, b.name, b.note, b.price)).join("")}</div>
+    <h3>Scarves</h3>
+    <div class="auras">${SCARVES.map((s) => gearCard("scarf", s.id, s.name, s.note, s.price)).join("")}</div>
+    <p class="small">A new board is used from the next ride.</p>
+    <div class="row"><button data-act="goals">Goals</button><button class="primary" data-act="back" data-autofocus>Back</button></div>
+  `);
+}
+
 function openSettings(): void {
   openPanel(`
     <h2 id="panel-title">Settings</h2>
@@ -526,6 +720,7 @@ function openSettings(): void {
       <button data-act="tips">Show tips again</button>
     </div>
     <label class="slider">Screen shake <input type="range" id="shake" min="0" max="100" value="${Math.round(save.shake * 100)}"></label>
+    ${clipsSupported() ? `<div class="row"><button data-act="clips" aria-pressed="${save.clips}">Clip recorder ${save.clips ? "on" : "off"} · C saves the last 10 s</button></div>` : ""}
     <h3>Progress</h3>
     <label class="field">Save code<textarea id="code" rows="3" spellcheck="false" placeholder="Paste a save code here to load it"></textarea></label>
     <div class="row">
@@ -591,12 +786,14 @@ function openGameOver(): void {
     <p class="song" aria-label="Your run as notes">${songStrip()}</p>
     <div class="row">
       <button class="primary big" data-act="again" data-autofocus>Ride again <kbd>Space</kbd></button>
-      <button data-act="share">Share</button>
+      <button data-act="share">Challenge a friend</button>
       <button data-act="postcard">Postcard</button>
     </div>
     <div class="row">
       ${mode === "daily" ? `<button data-act="journey">Journey mode</button>` : `<button data-act="daily">Today's wave</button>`}
       <button data-act="zen">Zen mode</button>
+      <button data-act="goals">Goals</button>
+      <button data-act="workshop">Workshop</button>
       <button data-act="auras">Auras & milestones</button>
     </div>
   `);
@@ -621,6 +818,27 @@ function switchMode(m: Mode): void {
 panel.addEventListener("click", async (e) => {
   const t = (e.target as HTMLElement).closest("button");
   if (!t) return;
+  const gear = t.dataset.gear;
+  if (gear) {
+    const [kind, id] = gear.split(":");
+    const item = kind === "board" ? BOARDS.find((b) => b.id === id) : SCARVES.find((s) => s.id === id);
+    if (item) {
+      if (!save.owned.includes(id)) {
+        if (save.bank < item.price) {
+          toast(`${item.price - save.bank} more gems needed`);
+          return;
+        }
+        save.bank -= item.price;
+        save.owned.push(id);
+      }
+      if (kind === "board") save.board = id;
+      else save.scarf = id;
+      applyGear();
+      persist();
+    }
+    openWorkshop();
+    return;
+  }
   const aura = t.dataset.aura as Aura | undefined;
   if (aura && save.unlocked.includes(aura)) {
     save.aura = aura;
@@ -656,6 +874,18 @@ panel.addEventListener("click", async (e) => {
     case "settings":
       openSettings();
       break;
+    case "goals":
+      openGoals();
+      break;
+    case "workshop":
+      openWorkshop();
+      break;
+    case "clips":
+      save.clips = !save.clips;
+      persist();
+      syncClips();
+      openSettings();
+      break;
     case "back":
       if (over) openGameOver();
       else openPause();
@@ -681,6 +911,7 @@ panel.addEventListener("click", async (e) => {
       openSettings();
       break;
     case "tips":
+      recValid = false;
       save.tutorialDone = false;
       tip = 0;
       tipHold = 0;
@@ -703,6 +934,8 @@ panel.addEventListener("click", async (e) => {
       score.setVolumes(save.musicVolume, save.notesVolume);
       renderer.fx.density = save.lightParticles ? 0.5 : 1;
       syncSoundIcon();
+      applyGear();
+      syncClips();
       toast("Save loaded.");
       openSettings();
       break;
@@ -740,6 +973,7 @@ function toggleSound(): void {
 }
 
 $("b-sound").addEventListener("click", toggleSound);
+clipBtn.addEventListener("click", () => void saveClip());
 $("b-aura").addEventListener("click", () => openAuras());
 $("b-pause").addEventListener("click", () => (over ? openGameOver() : openPause()));
 $("b-daily").addEventListener("click", () => {
@@ -800,12 +1034,62 @@ function updateWeights(): number {
   return c;
 }
 
+/** A tall column of water for a hard landing or a plunge: heavier the harder the hit. */
+function splashColumn(power: number, x: number, y: number): void {
+  const n = 12 + Math.round(power * 16);
+  for (let i = 0; i < n; i++) {
+    renderer.fx.spawn(x + (Math.random() - 0.5) * 70, y, (Math.random() - 0.5) * 240, (480 + Math.random() * 720) * (0.35 + power), 0.95, 2.4, [225, 243, 255], 0);
+  }
+}
+
+/** Pays out goals as they finish; all three means a rank, and a fresh set on the next ride. */
+function goalsDone(): void {
+  if (mode === "zen") return;
+  const finished = check(save.quests, counters);
+  if (!finished.length) return;
+  for (const q of finished) {
+    save.bank += GEMS_PER_GOAL;
+    toast(`✦ ${questText(q)} · +${GEMS_PER_GOAL} gems`);
+  }
+  score.milestone();
+  if (allDone(save.quests)) {
+    save.rank++;
+    save.bank += GEMS_PER_RANK;
+    renderer.showBanner(`Rank ${save.rank + 1} · +${GEMS_PER_RANK} gems`);
+    score.motif(0, true);
+  }
+  persist();
+}
+
+function goalHtml(): string {
+  return save.quests
+    .map((q) => `<li class="${q.done ? "got" : ""}"><span>${q.done ? "✦" : "·"} ${questText(q)}</span><i>${q.done ? "" : Math.min(q.target, counters[q.id]) + "/" + q.target}</i></li>`)
+    .join("");
+}
+
+function ghostText(): string {
+  if (!replay || !linkGhost) return "";
+  if (replay.done) return `Ghost faded at ${(replay.spirit.distance / 10000).toFixed(2)} km`;
+  const m = Math.round((spirit.x - replay.spirit.x) / 10);
+  return `Ghost ${fmt(linkGhost.score)} · you ${m >= 0 ? "+" : "−"}${Math.abs(m)} m`;
+}
+
 function tick(dt: number): void {
+  if (spirit.frames === 0) {
+    // The spirit hovers and bobs while waiting; the run itself always launches from the same
+    // height so a replay of it starts from the same state.
+    spirit.y = spirit.py = terrain.height(spirit.x) + 220;
+    spirit.vy = 0;
+  }
+  // Anything that changes the hazards mid-run makes the run impossible to replay exactly.
+  if (tip !== -1) recValid = false;
   const before = spirit.x;
   const hold = holding();
   if (hold && !wasHolding) score.whoosh(currentSpeed(spirit) / 1600);
   wasHolding = hold;
+  if (recValid) rec.hold(spirit.frames, hold);
   step(spirit, terrain, hold, ev, dt, hazardsOn());
+  if (replay) replay.advance(spirit.frames);
   const dx = spirit.x - before;
   updateRun(run, spirit, ev, dx, dt, rev);
   clock += dt;
@@ -821,6 +1105,48 @@ function tick(dt: number): void {
   }
   const ground = terrain.height(spirit.x);
   const alt = spirit.y - ground;
+
+  // Goals count what just happened; the water answers how hard you hit it.
+  const sp = currentSpeed(spirit);
+  if (ev.breach) counters.breach++;
+  if (ev.plunge) {
+    counters.plunge++;
+    score.thud(0.55);
+    splashColumn(0.55, spirit.x, ground);
+  }
+  if (ev.ring) {
+    counters.ring += ev.ring;
+    if (ev.thread) counters.thread++;
+    if (spirit.surge > 0) counters.surgeRing += ev.ring;
+    renderer.shardRing(ev.ringX, ev.ringY);
+  }
+  if (ev.gem) {
+    counters.gem += ev.gem;
+    // Zen has no hazards, so it earns no gems and counts no goals.
+    if (mode !== "zen") save.bank += ev.gem;
+  }
+  if (ev.landing === "perfect") {
+    counters.perfect++;
+    if (spirit.combo > counters.streak) counters.streak = spirit.combo;
+  }
+  if (ev.flips >= 2 && (ev.landing === "perfect" || ev.landing === "good")) counters.doubleFlip++;
+  counters.km = Math.floor(spirit.distance / 10000);
+  counters.tier = run.tier;
+  if (ev.landing) {
+    const impact = Math.min(1, (Math.sin(ev.landMiss) * sp) / 900);
+    if (ev.landing === "rough" || impact > 0.5) {
+      // Slammed in flat: a deep thud, a tall column of water and a shake.
+      score.thud(0.35 + impact * 0.65);
+      splashColumn(impact, spirit.x, ground);
+      renderer.kick(0.2 + impact * 0.5);
+    } else if (ev.landing === "perfect") {
+      // Skimmed in along the slope: silk, and foam that stays on the crest.
+      score.skim(sp);
+      for (let k = 0; k < 4; k++) renderer.foam(spirit.x - k * 34, 30 + k * 6);
+    }
+  }
+  if (spirit.grounded && sp > 500 && spirit.frames % 4 === 0) renderer.foam(spirit.x, 8 + sp / 130);
+  if (!spirit.under && alt > 700 && spirit.frames % 150 === 0) score.chime(12 + (Math.floor(spirit.frames / 150) % 3), 0.3);
 
   if (ev.takeoff) score.note(2 + Math.min(4, currentSpeed(spirit) / 500), zone, 0.3);
   if (ev.landing === "perfect") {
@@ -896,7 +1222,7 @@ function tick(dt: number): void {
     lastBiome = biome;
     renderer.showBanner(BIOMES[biome]);
   }
-  if (ev.crash && hazardsOn() && respawn < 0) {
+  if (ev.crash && hazardsOn() && respawn < 0 && !rev.ended) {
     renderer.shatter(spirit.x, spirit.y, [255, 210, 160]);
     score.splash();
     renderer.callout("skill issue", "skill", spirit.x, spirit.y, true);
@@ -911,6 +1237,14 @@ function tick(dt: number): void {
   // Module 2: dead-centre rings freeze the frame for 30 ms; callouts react to the move.
   const call = juice.react(ev, clock);
   if (juice.centreHit) {
+    counters.centre++;
+    if (spirit.airRot >= 5.4) counters.flipCentre++;
+    clipMoment();
+  }
+  if (call && (call.kind === "clean" || call.kind === "inches")) clipMoment();
+  if (ev.thread || ev.flips >= 2) clipMoment();
+  goalsDone();
+  if (juice.centreHit) {
     renderer.fx.burst(ev.ringX, ev.ringY, 60, 540, [180, 255, 230], 0, 1.1);
     renderer.punchIn(0.07);
     renderer.kick(0.35);
@@ -923,7 +1257,7 @@ function tick(dt: number): void {
     else score.milestone();
   }
   if (rev.km) {
-    renderer.showBanner(`${rev.km} km`);
+    renderer.showBanner(rev.km % 5 === 0 ? `${rev.km} km · the gate` : `${rev.km} km`);
     score.milestone();
   }
   if (mode === "journey" && !passedBest && save.bestDistance > 2000 && spirit.distance > save.bestDistance) {
@@ -974,6 +1308,7 @@ function tick(dt: number): void {
   }
 
   if (rev.ended) {
+    endFrame = spirit.frames;
     if (chain.length) {
       run.score += Math.round(chainPts * (1 + 0.25 * (chain.length - 1)) * run.mult);
       chain.length = 0;
@@ -1070,7 +1405,17 @@ function frame(now: number): void {
     lastStyle = style;
   }
   const speed = currentSpeed(spirit);
-  score.update(paused ? 0 : speed, style, weights[4], !spirit.grounded);
+  const gAlt = spirit.y - terrain.height(spirit.x);
+  score.update(paused ? 0 : speed, style, weights[4], !spirit.grounded, spirit.under ? 0 : Math.min(1, Math.max(0, gAlt) / 2200), spirit.under ? Math.min(1, Math.max(0, -gAlt) / 420) : 0);
+  if (replay?.done) ghostFade = Math.max(0, ghostFade - dt * 0.5);
+  if (replay && ghostFade > 0) {
+    const gs = replay.spirit;
+    const ga = paused ? 1 : acc / STEP;
+    ghostView.x = gs.px + (gs.x - gs.px) * ga;
+    ghostView.y = gs.py + (gs.y - gs.py) * ga;
+    ghostView.angle = gs.angle;
+    ghostView.a = 0.8 * ghostFade;
+  }
   // Module 1: the lo-fi stems follow the multiplier.
   const live = started && !paused && !over && ending < 0;
   const change = lofi.update(run.mult, live);
@@ -1106,7 +1451,25 @@ function frame(now: number): void {
     obsA,
     surge: spirit.surge / SURGE_TIME,
     streak: spirit.combo,
+    scarf: scarfLen,
+    surgeReady: started && spirit.surgeCd <= 0 && !spirit.under && (mode === "zen" || run.light >= 0.2),
+    ghost: replay && ghostFade > 0 ? ghostView : null,
   });
+  if (clips.active) drawClip();
+  if (hudFrame++ % 6 === 0) {
+    const gt = ghostText();
+    if (ghostBar.textContent !== gt) {
+      ghostBar.textContent = gt;
+      ghostBar.hidden = !gt;
+    }
+    const gh = goalHtml();
+    if (goalBar.dataset.s !== gh) {
+      goalBar.dataset.s = gh;
+      goalBar.innerHTML = gh;
+    }
+  }
+  const showClip = clips.active && performance.now() < clipUntil;
+  if (clipBtn.hidden === showClip) clipBtn.hidden = !showClip;
   tripFill.style.transform = `scaleX(${Math.min(1, spirit.distance / 30000)})`;
   const bn = BIOMES[biomeAt(spirit.x)];
   if (tripName.textContent !== bn) tripName.textContent = bn;

@@ -84,6 +84,11 @@ export interface Spirit {
   /** Seconds of Surge left (speed burst with a ring magnet), and seconds until the next one. */
   surge: number;
   surgeCd: number;
+  /** Handling from the worn board: gravity multiplier while holding, and backflip rate. */
+  dive: number;
+  flip: number;
+  /** Ring catch radius multiplier from the worn board. */
+  reach: number;
 }
 
 export const SURGE_TIME = 1.2;
@@ -105,9 +110,9 @@ export function surge(s: Spirit): boolean {
   return true;
 }
 
-export function makeSpirit(terrain: Terrain): Spirit {
+export function makeSpirit(terrain: Terrain, dive = DIVE, flip = FLIP_RATE, reach = 1): Spirit {
   const y = terrain.height(0) + 220;
-  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0 };
+  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach };
 }
 
 export function makeEvents(): StepEvents {
@@ -160,7 +165,7 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
     underwater(s, t, holding, dt, ev);
     return;
   }
-  const g = G * (holding ? DIVE : 1);
+  const g = G * (holding ? s.dive : 1);
   if (s.grounded) {
     const k = t.slope(s.x);
     const n = Math.sqrt(1 + k * k);
@@ -205,8 +210,8 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
   // Holding in the air tucks into a backflip; letting go settles the board to the flight path.
   s.holdAir = holding ? s.holdAir + dt : 0;
   if (holding && s.holdAir > FLIP_DELAY) {
-    s.angle += FLIP_RATE * dt;
-    s.airRot += FLIP_RATE * dt;
+    s.angle += s.flip * dt;
+    s.airRot += s.flip * dt;
   } else {
     const d = wrap(Math.atan2(s.vy, s.vx) - s.angle);
     s.angle += clamp(d, -ALIGN_RATE * dt, ALIGN_RATE * dt);
@@ -320,8 +325,8 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
         hy = a < b ? r.y + off : r.y - off;
       } else d2 = ringDist2(s, r.x, r.y, dx, dy, len2);
       if (d2 < r.closest) r.closest = d2;
-      const reach = s.surge > 0 ? rr * SURGE_MAGNET : rr;
-      if (d2 < reach * reach) {
+      const catchR = (s.surge > 0 ? rr * SURGE_MAGNET : rr) * s.reach;
+      if (d2 < catchR * catchR) {
         r.taken = true;
         s.ringsTaken++;
         ev.ring++;
