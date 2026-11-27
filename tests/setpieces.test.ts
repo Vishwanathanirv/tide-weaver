@@ -315,6 +315,8 @@ describe("eclipse and storm front", () => {
       s.vx = 700;
       s.vy = 900;
       s.grounded = false;
+      // Gravity is the subject here, so no sky-rail may catch the jump.
+      s.railCd = 99;
       let top = s.y - t.height(s.x);
       for (let i = 0; i < 120; i++) {
         step(s, t, false, ev, STEP, false);

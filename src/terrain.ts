@@ -405,7 +405,7 @@ export class Terrain {
         if (index % 2 === 0 && er() < 0.9) {
           const rx0 = x0 + 120 + er() * 300;
           const len = 900 + er() * 500;
-          let y0 = this.gb(rx0) + 620 + er() * 260;
+          let y0 = this.gb(rx0) + (300 + 220 * Math.min(1, index / 24)) + er() * 200;
           let y1 = y0 + (er() - 0.4) * 320;
           // Never bury a rail: along its whole length keep it well above the ground (the Leviathan's back rises).
           let lift = 0;

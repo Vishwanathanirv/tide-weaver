@@ -12,6 +12,8 @@
 import type { Score } from "./audio";
 
 const GRID = 60 / 88 / 2;
+/** Level of the whole bed. Measured in the browser: with 1.0 the mix sat near -32 dBFS RMS, too far under the chimes. */
+const BED = 1.7;
 const BAR = 8;
 const CHORD_STEPS = BAR * 4;
 
@@ -74,7 +76,7 @@ export class Harmony {
     if (!ctx) return false;
     this.ctx = ctx;
     this.out = ctx.createGain();
-    this.out.gain.value = 1;
+    this.out.gain.value = BED;
     this.filter = ctx.createBiquadFilter();
     this.filter.type = "lowpass";
     this.filter.frequency.value = 9000;
@@ -100,8 +102,8 @@ export class Harmony {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     this.out.gain.cancelScheduledValues(t);
-    this.out.gain.setTargetAtTime(0.55, t, 0.012);
-    this.out.gain.setTargetAtTime(1, t + 0.08, 0.07);
+    this.out.gain.setTargetAtTime(0.55 * BED, t, 0.012);
+    this.out.gain.setTargetAtTime(BED, t + 0.08, 0.07);
   }
 
   /** Called every frame. Cheap when sound is not unlocked. */

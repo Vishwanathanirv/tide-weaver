@@ -229,13 +229,16 @@ export class Surfer {
     ctx.fill();
     // Skins: accessories over the hood.
     if (sk === "ronin") {
-      ctx.fillStyle = "#2a1c10";
+      ctx.fillStyle = "#d6b25e";
+      ctx.strokeStyle = "#6a4a14";
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.moveTo((hcx - 10) * s, (hcy - 0.5) * s);
+      ctx.moveTo((hcx - 11) * s, (hcy - 0.5) * s);
       ctx.lineTo(hcx * s, (hcy - 10) * s);
-      ctx.lineTo((hcx + 10) * s, (hcy - 0.5) * s);
-      ctx.quadraticCurveTo(hcx * s, (hcy - 3) * s, (hcx - 10) * s, (hcy - 0.5) * s);
+      ctx.lineTo((hcx + 11) * s, (hcy - 0.5) * s);
+      ctx.quadraticCurveTo(hcx * s, (hcy - 3) * s, (hcx - 11) * s, (hcy - 0.5) * s);
       ctx.fill();
+      ctx.stroke();
     } else if (sk === "kitsune") {
       ctx.fillStyle = "#e9863a";
       for (const dx of [-2.6, 3.2]) {

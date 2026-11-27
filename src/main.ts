@@ -412,6 +412,7 @@ function persist(): void {
 // ---------------------------------------------------------------- input
 
 const pointers = new Set<number>();
+let meterNode: AnalyserNode | null = null;
 const swipe = new Map<number, { y: number; t: number }>();
 let lastTapAt = 0;
 const keys = new Set<string>();
@@ -422,6 +423,30 @@ const holding = () => !over && ending < 0 && (pointers.size > 0 || keys.size > 0
 if (import.meta.env.DEV) (window as unknown as { __tw: unknown }).__tw = {
     holding,
     pointers: () => pointers.size,
+    // Peak and RMS of the whole mix, for checking levels in the browser.
+    meter: () => {
+      const ctx = score.context;
+      const st = score.stream;
+      if (!ctx || !st) return null;
+      if (!meterNode) {
+        meterNode = ctx.createAnalyser();
+        meterNode.fftSize = 2048;
+        // The branch must reach the destination or the browser will not pull audio through it.
+        const mute = ctx.createGain();
+        mute.gain.value = 0;
+        ctx.createMediaStreamSource(st).connect(meterNode);
+        meterNode.connect(mute).connect(ctx.destination);
+      }
+      const buf = new Float32Array(2048);
+      meterNode.getFloatTimeDomainData(buf);
+      let pk = 0;
+      let sum = 0;
+      for (const v of buf) {
+        pk = Math.max(pk, Math.abs(v));
+        sum += v * v;
+      }
+      return { peak: pk, rms: Math.sqrt(sum / buf.length) };
+    },
     // Where the spirit is on screen, and what it is doing: for checking it never leaves the frame.
     screen: () => ({ x: renderer.sx(spirit.x), y: renderer.sy(spirit.y), w: window.innerWidth, h: window.innerHeight, alt: Math.round(spirit.y - terrain.height(spirit.x)), under: spirit.under, rail: !!spirit.rail, whirl: !!spirit.whirl, started, over, titleOn }),
   };

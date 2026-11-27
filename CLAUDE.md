@@ -44,4 +44,5 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - Coyote window: `Spirit.coyote` is physics state, so it replays in ghosts; ghost VERSION is 5.
 - The title autopilot is a `Rival` riding the real wave for the title view only; a veil dip hides the cut when it loops and when play begins.
 - `src/harmony.ts` is the five-stem Lydian bed; it shares the Score's context, grid and buses, and `Score.onSparkle` ducks it. `stemLevels` and `cutoffFor` are pure and tested.
-- The opening profile (`Terrain.kick`: valley, climb, lip at 1550, drop) is part of `baseHeight`, so every wave has it. The rail is placed against `gb()` and `tests/opening.test.ts` plays a bot through it. Ghost VERSION is 7.
+- The opening profile (`Terrain.kick`: valley, climb, lip at 1550, drop) is part of `baseHeight`, so every wave has it. The rail is placed against `gb()` and `tests/opening.test.ts` plays a bot through it. Ghost VERSION is 8.
+- Dev-only `window.__tw.meter()` returns peak and RMS of the whole mix (measured: median about -27 dBFS RMS, peaks under -3 dBFS). Sky-rails sit 300 to 520 units over the water, rising with distance. Simulated tuning: a plain dive bot escapes the tidal wave on about 4 in 5 attempts that reach it.

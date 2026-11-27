@@ -9,7 +9,7 @@ import { makeEvents, makeSpirit, step, surge, STEP, type Spirit, type StepEvents
 import { Terrain } from "./terrain";
 
 // Bumped whenever the physics changes: an old link would replay differently.
-const VERSION = 7;
+const VERSION = 8;
 export const MAX_EVENTS = 1500;
 
 export const DOWN = 0;
