@@ -133,6 +133,11 @@ const COLLAPSE_DEPTH = 120;
 const COLLAPSE_WIDTH = 180;
 const COLLAPSE_STEPS = 36;
 export const METEOR_H = 150;
+export const KICK_VAL = 700;
+export const KICK_LIP = 1550;
+export const KICK_DROP = 50;
+export const KICK_D = 170;
+export const KICK_H = 120;
 /** Steps after the strike before its shards can be caught. */
 export const METEOR_SETTLE = 30;
 
@@ -182,9 +187,40 @@ export class Terrain {
     return x > 0 && x < 60000 ? 0.35 / 60000 : 0;
   }
 
+  /**
+   * The opening profile: a smooth valley (KICK_D deep) to dive into for speed, a climb to a lip
+   * KICK_H above the starting level at KICK_LIP, then a short drop. Diving the valley and letting
+   * go at the lip launches anyone into the opening Sky-Rail.
+   */
+  private kick(x: number): number {
+    if (x <= 0 || x >= KICK_LIP + KICK_DROP) return 0;
+    if (x < KICK_VAL) {
+      const u = x / KICK_VAL;
+      return -KICK_D * u * u * (3 - 2 * u);
+    }
+    const u = Math.min(1, (x - KICK_VAL) / (KICK_LIP - KICK_VAL));
+    const v = Math.max(0, Math.min(1, (x - KICK_LIP) / KICK_DROP));
+    return (-KICK_D + (KICK_D + KICK_H) * Math.pow(u, 1.6)) * (1 - v * v * (3 - 2 * v)) + (v > 0 ? 0 : 0);
+  }
+
+  private kickSlope(x: number): number {
+    if (x <= 0 || x >= KICK_LIP + KICK_DROP) return 0;
+    if (x < KICK_VAL) {
+      const u = x / KICK_VAL;
+      return (-KICK_D * 6 * u * (1 - u)) / KICK_VAL;
+    }
+    const L = KICK_LIP - KICK_VAL;
+    const u = Math.min(1, (x - KICK_VAL) / L);
+    const v = Math.max(0, Math.min(1, (x - KICK_LIP) / KICK_DROP));
+    const ss = v * v * (3 - 2 * v);
+    const h = -KICK_D + (KICK_D + KICK_H) * Math.pow(u, 1.6);
+    const dh = x < KICK_LIP ? ((KICK_D + KICK_H) * 1.6 * Math.pow(u, 0.6)) / L : 0;
+    return dh * (1 - ss) - (h * 6 * v * (1 - v)) / KICK_DROP;
+  }
+
   private baseHeight(x: number): number {
     const m = (0.72 + 0.28 * Math.sin(this.modK * x + this.modP)) * this.grow(x);
-    return m * (this.a[0] * Math.sin(this.k[0] * x + this.p[0]) + this.a[1] * Math.sin(this.k[1] * x + this.p[1])) + this.a[2] * Math.sin(this.k[2] * x + this.p[2]);
+    return m * (this.a[0] * Math.sin(this.k[0] * x + this.p[0]) + this.a[1] * Math.sin(this.k[1] * x + this.p[1])) + this.a[2] * Math.sin(this.k[2] * x + this.p[2]) + this.kick(x);
   }
 
   private baseSlope(x: number): number {
@@ -195,7 +231,7 @@ export class Terrain {
     const dm = 0.28 * this.modK * Math.cos(this.modK * x + this.modP) * g + mod * this.growSlope(x);
     const base = this.a[0] * Math.sin(this.k[0] * x + this.p[0]) + this.a[1] * Math.sin(this.k[1] * x + this.p[1]);
     const dbase = this.a[0] * this.k[0] * Math.cos(this.k[0] * x + this.p[0]) + this.a[1] * this.k[1] * Math.cos(this.k[1] * x + this.p[1]);
-    return dm * base + m * dbase + this.a[2] * this.k[2] * Math.cos(this.k[2] * x + this.p[2]);
+    return dm * base + m * dbase + this.a[2] * this.k[2] * Math.cos(this.k[2] * x + this.p[2]) + this.kickSlope(x);
   }
 
   private progress(c: Collapse): number {
@@ -300,12 +336,12 @@ export class Terrain {
   private opening(ch: Chunk, index: number): void {
     if (index === 0) {
       for (const x of [1050, 1300]) ch.rings.push(mkRing(x, this.gb(x) + 250 + (x - 1050) * 0.2, 58));
-      const x0 = 1650;
-      const x1 = 2350;
-      let y0 = this.gb(x0) + 330;
-      let y1 = y0 + 40;
+      const x0 = 1620;
+      const x1 = 2320;
+      let y0 = this.gb(x0) + 85;
+      let y1 = y0 + 20;
       let lift = 0;
-      for (let x = x0; x <= x1; x += 50) lift = Math.max(lift, this.gb(x) + 300 - (y0 + ((y1 - y0) * (x - x0)) / (x1 - x0)));
+      for (let x = x0; x <= x1; x += 50) lift = Math.max(lift, this.gb(x) + 60 - (y0 + ((y1 - y0) * (x - x0)) / (x1 - x0)));
       y0 += lift;
       y1 += lift;
       ch.rails.push({ x0, x1, y0, y1, amp: 14, waves: 1, ph: 0 });

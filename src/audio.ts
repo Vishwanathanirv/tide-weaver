@@ -95,7 +95,7 @@ export class Score {
     return this.t0;
   }
   /** 0..1: how much of the old string pad sits under the lo-fi keys. */
-  padLevel = 0.45;
+  padLevel = 0.22;
 
   get ready(): boolean {
     return !!this.ctx && this.ctx.state === "running";
@@ -415,6 +415,7 @@ export class Score {
     this.remember(i * 2);
     const ctx = this.ctx;
     if (!ctx || ctx.state !== "running") return;
+    this.onSparkle?.();
     this.playMidi(ROOT + 12 + CHAIN[i], instrument, velocity * (0.85 + 0.03 * i), this.nextSlot() + later * GRID);
   }
 
@@ -423,10 +424,14 @@ export class Score {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== "running") return;
     const t = ctx.currentTime;
+    this.onSparkle?.();
     this.voice("sine", hz(ROOT - 24), 0.34, 0.004, 0.45, t);
     this.voice("sine", hz(ROOT + 19), 0.2, 0.002, 1.6, t + 0.03);
     this.voice("sine", hz(ROOT + 24), 0.13, 0.002, 1.2, t + 0.03);
   }
+
+  /** Set by the harmonic bed so it can duck under a chime. */
+  onSparkle: (() => void) | null = null;
 
   /** The song is kept even when sound is off, so every run has a share card. */
   private remember(degree: number): void {

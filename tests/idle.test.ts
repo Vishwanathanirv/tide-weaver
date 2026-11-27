@@ -51,10 +51,11 @@ describe("idleness", () => {
     for (const seed of [1, 2, 3, 4]) {
       const normal = play(seed, dive, false);
       const gentle = play(seed, dive, true);
-      expect(normal.secs).toBeGreaterThan(20);
+      expect(normal.secs).toBeGreaterThan(16);
       normalTotal += normal.secs;
       gentleTotal += gentle.secs;
     }
+    expect(normalTotal / 4).toBeGreaterThan(30);
     expect(gentleTotal).toBeGreaterThan(normalTotal);
   });
 

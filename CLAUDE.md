@@ -43,3 +43,5 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - Opening: `Terrain.opening` is fixed content for chunks 0 and 1 (no random draws). Meteor ramps (`Collapse.up`), shards and caverns use their own stream; meteors are timed by physics frame like collapses.
 - Coyote window: `Spirit.coyote` is physics state, so it replays in ghosts; ghost VERSION is 5.
 - The title autopilot is a `Rival` riding the real wave for the title view only; a veil dip hides the cut when it loops and when play begins.
+- `src/harmony.ts` is the five-stem Lydian bed; it shares the Score's context, grid and buses, and `Score.onSparkle` ducks it. `stemLevels` and `cutoffFor` are pure and tested.
+- The opening profile (`Terrain.kick`: valley, climb, lip at 1550, drop) is part of `baseHeight`, so every wave has it. The rail is placed against `gb()` and `tests/opening.test.ts` plays a bot through it. Ghost VERSION is 7.

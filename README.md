@@ -63,8 +63,9 @@ Zen mode keeps every biome but nothing can hurt you.
 - **Upgrades:** three gem upgrades, Lv 1 to 5, the first for 15 to 25 gems. Light Vessel (+8% light duration per level), Tide Magnet (wider ring and gem pull, even outside Surge), Surge Core (recharge from 4.5 s toward 2.8 s, cheaper in light).
 - **Hooks:** a Daily chest on the title (10 to 25 gems, once a day), Start Boost (+30 launch speed per level), rider skins (Ronin, Kitsune, Storm Valkyrie), and Second Wind: 25 gems to continue a faded run once. Runs that use it are not shareable as ghosts.
 - **Juice:** a shockwave ring on every ring, foam bursts on clean landings, CLOSE! +100 with a brief slow-motion on near misses, a sub thump and bell on dead-centre rings, swipe up or double-tap to Surge on touch.
-- **Opening:** the first 450 m is scripted: two rings, a low sky-rail, four rings and a whirlpool, with no traps.
+- **Opening:** the first 450 m is scripted: a valley to dive for speed, a climb to a lip, a low Sky-Rail you launch straight into, four rings and a whirlpool, with no traps. A plain dive-the-downhills rider reaches the rail on about two waves in three.
 - **Wonders:** meteor splash-ramps with gold shards, abyssal caverns with a crystal gem trail, a wandering rival spirit to pass for a gem, and a coyote window (let go up to 0.12 s late over a crest and you still launch).
+- **Music:** a four-chord D Lydian bed (Dmaj9, E6/D, C#m7, F#m9) with five stems that crossfade as you ride: felt piano always, harp with speed, sub-bass and brushes from x1.5, glass bells and air with altitude, a 250 Hz low-pass and cello underwater. Chimes duck it for 80 ms.
 - **Feel:** a rising pitch chain on rings and clean landings (resets on a slam), short haptic clicks on touch devices (Settings), larger score and goals on phones.
 - **Workshop:** spend abyss gems on boards that change handling (Anchor dives harder, Feather floats and flips fast) and scarves that lengthen the scarf and the light trail.
 - **Ghost races:** the Challenge link carries your whole run in a few hundred bytes. Whoever opens it races a translucent copy of you on the same wave, with the gap shown live. No server.

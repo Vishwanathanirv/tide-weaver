@@ -14,6 +14,7 @@ import { Juice } from "./juice";
 import { BOARDS, MAX_LEVEL, SCARVES, SKINS, UPGRADES, boardOf, drainOf, pullOf, scarfOf, startSpeedOf, surgeCoolOf, surgeCostOf } from "./gear";
 import { GEMS_PER_GOAL, GEMS_PER_RANK, allDone, check, deal, emptyCounters, questText, type Counters } from "./quests";
 import { Rival } from "./rival";
+import { Harmony } from "./harmony";
 import { Recorder, Replay, decode, encode, type Ghost } from "./ghost";
 import { ClipRecorder, clipsSupported } from "./clip";
 
@@ -91,6 +92,7 @@ function storage(): KV | null {
 const vault = new Vault(storage());
 let save: SaveData = vault.load();
 const score = new Score();
+const harmony = new Harmony(score);
 score.setMuted(save.muted);
 score.setVolumes(save.musicVolume, save.notesVolume);
 const lofi = new LoFi(score);
@@ -1864,6 +1866,7 @@ function frame(now: number): void {
   const speed = currentSpeed(spirit);
   const gAlt = spirit.y - terrain.height(spirit.x);
   score.update(paused ? 0 : speed, style, weights[4], !spirit.grounded, spirit.under ? 0 : Math.min(1, Math.max(0, gAlt) / 2200), spirit.under ? Math.min(1, Math.max(0, -gAlt) / 420) : 0);
+  harmony.update({ speed: Math.min(1, speed / 1800), mult: run.mult, strato: Math.min(1, Math.max(0, gAlt - 2200) / 900), air: spirit.under ? 0 : Math.min(1, Math.max(0, gAlt) / 2200), depth: spirit.under ? Math.min(1, Math.max(0, -gAlt) / 420) : 0, live: started && !paused && !over });
   score.setStrato(spirit.under ? 0 : Math.min(1, Math.max(0, gAlt - 2200) / 900));
   const tideGap = tideStart >= 0 && !tideDone ? spirit.x - tideX(spirit.frames - tideStart, tideBase) : Infinity;
   score.setRumble(Number.isFinite(tideGap) && !paused && !over ? Math.min(1, Math.max(0, 1 - tideGap / 3000)) : 0);
