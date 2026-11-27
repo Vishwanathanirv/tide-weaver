@@ -16,6 +16,12 @@ export interface StepEvents {
   ring: number;
   ringX: number;
   ringY: number;
+  /** 0..1, how close to the centre the last ring was crossed (1 = dead centre). */
+  ringCenter: number;
+  /** A ring went by just outside reach this step. */
+  nearMiss: boolean;
+  /** Angle between flight path and slope at the last landing, in radians. */
+  landMiss: number;
 }
 
 export interface Spirit {
@@ -44,7 +50,7 @@ export function makeSpirit(terrain: Terrain): Spirit {
 }
 
 export function makeEvents(): StepEvents {
-  return { takeoff: false, landing: null, apex: false, ring: 0, ringX: 0, ringY: 0 };
+  return { takeoff: false, landing: null, apex: false, ring: 0, ringX: 0, ringY: 0, ringCenter: 0, nearMiss: false, landMiss: 0 };
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -98,6 +104,7 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
   const along = (s.vx + s.vy * k) / n;
   const normal = (s.vy - s.vx * k) / n;
   const miss = Math.atan2(Math.abs(normal), Math.max(1, along));
+  ev.landMiss = miss;
   let speed = along;
   if (miss < 0.3 && k < -0.03 && s.airTime > 0.25) {
     s.combo++;
@@ -129,6 +136,7 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
   ev.landing = null;
   ev.apex = false;
   ev.ring = 0;
+  ev.nearMiss = false;
   s.px = s.x;
   s.py = s.y;
   move(s, t, holding, dt / 2, ev);
@@ -143,19 +151,25 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
     const list = t.rings(c);
     for (let i = 0; i < list.length; i++) {
       const r = list[i];
-      if (r.taken) continue;
+      if (r.taken || r.passed) continue;
       const u = clamp(((r.x - s.px) * dx + (r.y - s.py) * dy) / len2, 0, 1);
       const cx = s.px + dx * u - r.x;
       const cy = s.py + dy * u - r.y;
-      if (cx * cx + cy * cy < r.r * r.r) {
+      const d2 = cx * cx + cy * cy;
+      if (d2 < r.closest) r.closest = d2;
+      if (d2 < r.r * r.r) {
         r.taken = true;
         s.ringsTaken++;
         ev.ring++;
         ev.ringX = r.x;
         ev.ringY = r.y;
+        ev.ringCenter = 1 - Math.sqrt(d2) / r.r;
         s.flow += 250;
         if (s.grounded) s.speed = Math.min(MAX_SPEED, s.speed + 160);
         else s.vx = Math.min(MAX_SPEED, s.vx + 160);
+      } else if (r.x + r.r < s.x) {
+        r.passed = true;
+        if (r.closest < r.r * r.r * 2.6) ev.nearMiss = true;
       }
     }
   }

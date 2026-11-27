@@ -46,6 +46,28 @@ export class Score {
   /** The last notes played, as scale degrees, for the share card. */
   readonly song: number[] = [];
 
+  /** Shared with the lo-fi engine so both play on one clock and one mix. */
+  get context(): AudioContext | null {
+    return this.ctx;
+  }
+  get musicBus(): GainNode {
+    return this.music;
+  }
+  get effectsBus(): GainNode {
+    return this.notes;
+  }
+  get reverbSend(): GainNode {
+    return this.send;
+  }
+  get noiseBuffer(): AudioBuffer {
+    return this.noise;
+  }
+  get gridOrigin(): number {
+    return this.t0;
+  }
+  /** 0..1: how much of the old string pad sits under the lo-fi keys. */
+  padLevel = 0.45;
+
   get ready(): boolean {
     return !!this.ctx && this.ctx.state === "running";
   }
@@ -170,7 +192,7 @@ export class Score {
     if (!ctx) return;
     const t = ctx.currentTime;
     const sp = Math.min(1, speed / 1800);
-    this.padGain.gain.setTargetAtTime(0.018 + sp * 0.03, t, 0.4);
+    this.padGain.gain.setTargetAtTime((0.018 + sp * 0.03) * this.padLevel, t, 0.4);
     this.padFilter.frequency.setTargetAtTime(380 + sp * 1300 + (airborne ? 250 : 0), t, 0.3);
     this.windGain.gain.setTargetAtTime(sp * sp * 0.05, t, 0.2);
     this.rainGain.gain.setTargetAtTime(rain * 0.07, t, 0.8);

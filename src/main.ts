@@ -6,6 +6,8 @@ import { hashString, utcDay } from "./rng";
 import { makeRun, makeRunEvents, updateRun, TIERS, type Mode, type Run } from "./rules";
 import { AURAS, exportCode, importCode, Vault, type Aura, type KV, type SaveData, type Stats } from "./save";
 import { Terrain, ZONES } from "./terrain";
+import { LoFi } from "./lofi";
+import { Juice } from "./juice";
 
 const CYCLE = 60;
 const BLEND = 5;
@@ -68,6 +70,8 @@ let save: SaveData = vault.load();
 const score = new Score();
 score.setMuted(save.muted);
 score.setVolumes(save.musicVolume, save.notesVolume);
+const lofi = new LoFi(score);
+const juice = new Juice();
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
@@ -171,6 +175,8 @@ function newRun(): void {
   peakTier = 0;
   started = false;
   idle = 0;
+  juice.reset();
+  renderer.setCinema(false);
   score.song.length = 0;
   renderer.resetTrail();
   lightEl.hidden = mode === "zen";
@@ -712,6 +718,7 @@ function tick(dt: number): void {
     renderer.pulse(spirit.x, ground, 0.55 + Math.min(0.6, spirit.combo * 0.08));
     renderer.popup(spirit.combo > 1 ? `Perfect ×${spirit.combo}` : "Perfect", spirit.x, spirit.y);
     renderer.kick(0.2 + Math.min(0.2, spirit.combo * 0.02));
+    renderer.punchIn(0.025 + Math.min(0.03, spirit.combo * 0.005));
     unlockAuras();
   } else if (ev.landing === "good") {
     score.note(3, zone, 0.35);
@@ -729,6 +736,14 @@ function tick(dt: number): void {
     renderer.popup(`+${fmt(250 * run.mult)}`, ev.ringX, ev.ringY);
     unlockAuras();
   }
+  // Module 2: dead-centre rings freeze the frame for 30 ms; callouts react to the move.
+  const call = juice.react(ev, clock);
+  if (juice.centreHit) {
+    renderer.fx.burst(ev.ringX, ev.ringY, 60, 540, [180, 255, 230], 0, 1.1);
+    renderer.punchIn(0.07);
+    renderer.kick(0.35);
+  }
+  if (call && !(call.kind === "skill" && tip !== -1)) renderer.callout(call.text, call.kind, spirit.x, spirit.y, call.big);
   if (rev.tierUp) {
     renderer.popup(TIERS[run.tier], spirit.x, spirit.y + 60, true);
     renderer.pulse(spirit.x, ground, 0.9);
@@ -819,7 +834,8 @@ function frame(now: number): void {
     }
     if (started && !holding()) idle += dt;
     else idle = 0;
-    acc += started ? dt * scaleT : 0;
+    const simDt = juice.consume(dt);
+    acc += started ? simDt * scaleT : 0;
     while (acc >= STEP && !paused) {
       tick(STEP);
       acc -= STEP;
@@ -842,6 +858,17 @@ function frame(now: number): void {
   }
   const speed = currentSpeed(spirit);
   score.update(paused ? 0 : speed, style, weights[4], !spirit.grounded);
+  // Module 1: the lo-fi stems follow the multiplier.
+  const live = started && !paused && !over && ending < 0;
+  const change = lofi.update(run.mult, live);
+  if (change === "locked") {
+    renderer.setCinema(true);
+    renderer.callout("LOCKED IN", "lock", spirit.x, spirit.y + 90, true);
+    renderer.pulse(spirit.x, terrain.height(spirit.x), 1.2);
+    renderer.punchIn(0.08);
+  } else if (change === "released") renderer.setCinema(false);
+  lofi.skim(live && spirit.grounded, speed);
+  renderer.setBass(lofi.bass());
   renderer.draw({
     spirit,
     alpha: paused ? 1 : acc / STEP,

@@ -2,6 +2,7 @@ import type { Spirit } from "./physics";
 import { RING_CHUNK, type Terrain } from "./terrain";
 import type { Aura } from "./save";
 import { mulberry32 } from "./rng";
+import type { CalloutKind } from "./juice";
 
 type RGB = [number, number, number];
 
@@ -209,6 +210,12 @@ export class Renderer {
   private waves: { x: number; y: number; life: number }[] = [];
   private moonX = 0;
   private moonY = 0;
+  private zoom = 1;
+  private punch = 0;
+  private bars = 0;
+  private barsTarget = 0;
+  private bass = 0;
+  private calls: { text: string; kind: CalloutKind; x: number; y: number; life: number; big: boolean }[] = [];
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -223,6 +230,7 @@ export class Renderer {
     }
     for (let i = 0; i < 6; i++) this.texts.push({ text: "", x: 0, y: 0, life: 0, big: false });
     for (let i = 0; i < 4; i++) this.waves.push({ x: 0, y: 0, life: 0 });
+    for (let i = 0; i < 4; i++) this.calls.push({ text: "", kind: "clean", x: 0, y: 0, life: 0, big: false });
   }
 
   resize(cssW: number, cssH: number, dpr: number): void {
@@ -271,6 +279,34 @@ export class Renderer {
     this.ready = false;
     for (const t of this.texts) t.life = 0;
     for (const w of this.waves) w.life = 0;
+    for (const c of this.calls) c.life = 0;
+    this.barsTarget = 0;
+  }
+
+  /** Letterbox bars for LOCKED IN. */
+  setCinema(on: boolean): void {
+    this.barsTarget = on ? 1 : 0;
+  }
+
+  /** 0..1 bass loudness: the waves breathe with it. */
+  setBass(level: number): void {
+    this.bass = level;
+  }
+
+  /** A quick zoom-in that settles back, for impact. */
+  punchIn(amount: number): void {
+    this.punch = Math.max(this.punch, amount);
+  }
+
+  callout(text: string, kind: CalloutKind, x: number, y: number, big = false): void {
+    let slot = this.calls[0];
+    for (const c of this.calls) if (c.life < slot.life) slot = c;
+    slot.text = text;
+    slot.kind = kind;
+    slot.x = x;
+    slot.y = y;
+    slot.big = big;
+    slot.life = big ? 1.6 : 1.2;
   }
 
   popup(text: string, x: number, y: number, big = false): void {
@@ -325,9 +361,14 @@ export class Renderer {
     const py = lerp(s.py, s.y, f.alpha);
     const ground = f.terrain.height(px);
     const alt = Math.max(0, py - ground);
-    const targetZoom = clamp(520 / (alt + 520), 0.16, 1);
+    // Altitude and speed both pull the camera back; impacts punch it in for a moment.
+    const speedZoom = 1 / (1 + Math.max(0, f.speed - 1100) / 3500);
+    const targetZoom = clamp((520 / (alt + 520)) * speedZoom, 0.16, 1);
     const k = this.ready ? 1 - Math.exp(-f.dt * 3) : 1;
-    this.scale = lerp(this.scale, this.base * targetZoom, k);
+    this.zoom = lerp(this.zoom, this.base * targetZoom, k);
+    this.punch = Math.max(0, this.punch - f.dt * 0.35);
+    this.scale = this.zoom * (1 + (f.reducedMotion ? 0 : this.punch));
+    this.bars += (this.barsTarget - this.bars) * (1 - Math.exp(-f.dt * 5));
     this.camX = px;
     const targetY = ground + Math.max(0, alt - 2200) * 0.85;
     this.camY = this.ready ? lerp(this.camY, targetY, 1 - Math.exp(-f.dt * 4)) : targetY;
@@ -368,6 +409,12 @@ export class Renderer {
       ctx.fillRect(-20, -20, w + 40, h + 40);
     }
     if (this.vignette) ctx.drawImage(this.vignette, 0, 0, w, h);
+    if (this.bars > 0.005) {
+      const bh = h * 0.085 * this.bars;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(-20, -20, w + 40, bh + 20);
+      ctx.fillRect(-20, h - bh, w + 40, bh + 20);
+    }
   }
 
   private sky(f: FrameState, wt: number[]): void {
@@ -634,7 +681,7 @@ export class Renderer {
       const x = i * step - 4;
       const wx = this.wx(x);
       // Visual-only ripples ride on top of the physics surface.
-      const ripple = (Math.sin(wx * 0.045 + f.time * 2.1) * 1.3 + Math.sin(wx * 0.011 - f.time * 1.2) * 1.9) * calm;
+      const ripple = (Math.sin(wx * 0.045 + f.time * 2.1) * 1.3 + Math.sin(wx * 0.011 - f.time * 1.2) * 1.9) * calm * (1 + this.bass * 3.5);
       this.sea[i * 2] = x;
       this.sea[i * 2 + 1] = this.sy(f.terrain.height(wx)) + ripple;
     }
@@ -687,7 +734,7 @@ export class Renderer {
     const line = mixPal(wt, (p) => p.line, this.tmp);
     const tint = ZONE_TINT[this.zoneTint];
     for (let c = 0; c < 3; c++) line[c] = lerp(line[c], tint[c], 0.22);
-    const lift = this.glow;
+    const lift = this.glow + this.bass * 0.5;
 
     ctx.strokeStyle = css(line, 0.18);
     ctx.lineWidth = 2;
@@ -1001,6 +1048,27 @@ export class Renderer {
       ctx.font = t.big ? "700 20px ui-rounded, 'SF Pro Rounded', system-ui, sans-serif" : "600 15px ui-rounded, 'SF Pro Rounded', system-ui, sans-serif";
       ctx.fillStyle = `rgba(255,255,255,${a})`;
       ctx.fillText(t.text, this.sx(t.x), this.sy(t.y) - 30 - ((t.big ? 1.8 : 1.4) - t.life) * 28);
+    }
+    for (const c of this.calls) {
+      if (c.life <= 0) continue;
+      c.life -= f.dt;
+      const max = c.big ? 1.6 : 1.2;
+      const age = max - c.life;
+      const pop = 1 + 0.4 * Math.max(0, 1 - age / 0.18);
+      const a = Math.min(1, c.life * 2.5);
+      const col = c.kind === "clean" ? "159,255,224" : c.kind === "inches" ? "255,210,122" : c.kind === "skill" ? "255,154,208" : "255,255,255";
+      ctx.save();
+      ctx.translate(this.sx(c.x), this.sy(c.y) - 58 - age * 22);
+      ctx.scale(pop, pop);
+      ctx.font = c.kind === "lock" ? "800 30px ui-rounded, system-ui, sans-serif" : c.big ? "800 24px ui-rounded, system-ui, sans-serif" : "800 18px ui-rounded, system-ui, sans-serif";
+      ctx.letterSpacing = c.kind === "lock" ? "6px" : "1px";
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = `rgba(0,0,0,${0.35 * a})`;
+      ctx.strokeText(c.text, 0, 0);
+      ctx.fillStyle = `rgba(${col},${a})`;
+      ctx.fillText(c.text, 0, 0);
+      ctx.letterSpacing = "0px";
+      ctx.restore();
     }
     if (this.banner.life > 0) {
       this.banner.life -= f.dt;

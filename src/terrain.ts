@@ -7,6 +7,9 @@ export interface Ring {
   y: number;
   r: number;
   taken: boolean;
+  /** Closest the spirit came, for near-miss callouts. Never read by physics. */
+  closest: number;
+  passed: boolean;
 }
 
 /** Four kinds of shore, each with its own instrument. */
@@ -78,7 +81,7 @@ export class Terrain {
       const n = 1 + Math.floor(r() * 2);
       for (let i = 0; i < n; i++) {
         const x = chunk * RING_CHUNK + 200 + r() * (RING_CHUNK - 400);
-        list.push({ x, y: this.height(x) + 230 + r() * 420, r: 48, taken: false });
+        list.push({ x, y: this.height(x) + 230 + r() * 420, r: 48, taken: false, closest: Infinity, passed: false });
       }
     }
     this.ringCache.set(chunk, list);

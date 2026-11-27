@@ -20,6 +20,14 @@ A coralctrl game. Free, in the browser, no sign-up.
 | M | Sound |
 | R | Hide the interface (for clean recordings) |
 
+## The music grows with you
+
+- Lo-fi keys and vinyl crackle from the first press.
+- **×1.5:** swung hi-hats and a soft kick join in.
+- **×3.0, LOCKED IN:** a bass drop, cinema bars, and the waves pulse with the bassline.
+- Surfing the water makes a soft skim that rises with your speed.
+- Callouts react to how you move: **clean** for a dead-centre ring (with a 30 ms freeze) or a razor-sharp landing, **inches** for a near miss, **skill issue** for a belly flop.
+
 ## Modes
 
 - **Journey:** keep your light burning as long as you can. A pillar of light marks your best distance.
