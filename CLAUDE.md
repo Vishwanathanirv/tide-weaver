@@ -9,11 +9,11 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - `src/physics.ts` fixed-step spirit physics (60 Hz, 2 sub-steps), landing grades, rings
 - `src/rules.ts` light, flow tiers, multiplier, kilometres, run end and its cause
 - `src/terrain.ts` analytic seeded hills, zones, ring placement
-- `src/render.ts` four art styles blended by weight, particle pool, trail, camera
+- `src/render.ts` five skies blended by weight, particle pool, trail, camera
 - `src/audio.ts` procedural score: pad, rain, wind, four instruments, quantised notes
 - `src/save.ts` dual-slot checksummed save vault, save codes
 - `src/main.ts` loop, input, UI panels, daily wave, auras, sharing
-- `tests/` physics determinism, terrain, saves, music
+- `tests/` physics determinism, run rules, terrain, saves, music
 
 ## Rules
 - Keep the game loop allocation-free: reuse event objects, pools and typed arrays.
