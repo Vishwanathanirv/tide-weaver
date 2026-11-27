@@ -16,6 +16,7 @@ import { GEMS_PER_GOAL, GEMS_PER_RANK, allDone, check, deal, emptyCounters, ques
 import { Rival } from "./rival";
 import { Harmony } from "./harmony";
 import { howToHtml } from "./howto";
+import { Governor, budgetScale } from "./governor";
 import { setStats, statsConfigured, track } from "./telemetry";
 import { gameplay, rewarded, rewardedAvailable } from "./ads";
 import { Recorder, Replay, decode, encode, type Ghost } from "./ghost";
@@ -104,7 +105,11 @@ const juice = new Juice();
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
-renderer.fx.density = save.lightParticles ? 0.5 : 1;
+/** Lowers the canvas resolution and the particle count when frames run long (see governor.ts). */
+const gov = new Governor();
+const particleDensity = (): number => (save.lightParticles ? 0.5 : 1) * (gov.scale < 0.8 ? 0.6 : 1);
+
+renderer.fx.density = particleDensity();
 const ui = document.getElementById("ui") as HTMLDivElement;
 
 const icon = (d: string) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
@@ -431,6 +436,11 @@ const holding = () => !over && ending < 0 && (pointers.size > 0 || keys.size > 0
 if (import.meta.env.DEV) (window as unknown as { __tw: unknown }).__tw = {
     holding,
     pointers: () => pointers.size,
+    scale: () => gov.scale,
+    force: (s: number) => {
+      gov.scale = s;
+      resize();
+    },
     // Peak and RMS of the whole mix, for checking levels in the browser.
     meter: () => {
       const ctx = score.context;
@@ -1203,7 +1213,7 @@ panel.addEventListener("click", async (e) => {
       break;
     case "particles":
       save.lightParticles = !save.lightParticles;
-      renderer.fx.density = save.lightParticles ? 0.5 : 1;
+      renderer.fx.density = particleDensity();
       persist();
       openSettings();
       break;
@@ -1229,7 +1239,7 @@ panel.addEventListener("click", async (e) => {
       persist();
       score.setMuted(save.muted);
       score.setVolumes(save.musicVolume, save.notesVolume);
-      renderer.fx.density = save.lightParticles ? 0.5 : 1;
+      renderer.fx.density = particleDensity();
       syncSoundIcon();
       applyGear();
       syncClips();
@@ -1751,7 +1761,7 @@ function tick(dt: number): void {
       run.score += 100 * run.mult;
       renderer.popup("CLOSE! +100", spirit.x + 30, spirit.y + 40, true);
       renderer.fx.burst(spirit.x + 20, spirit.y, 18, 460, [255, 236, 170], 0, 0.5);
-      slowT = Math.max(slowT, 0.22);
+      slowT = Math.max(slowT, 0.12);
     }
     score.note(14, 1, 0.75);
     score.note(12, 1, 0.6, 1);
@@ -1841,10 +1851,15 @@ function tick(dt: number): void {
 // ---------------------------------------------------------------- frame loop
 
 function resize(): void {
-  renderer.resize(window.innerWidth, window.innerHeight, Math.min(2, window.devicePixelRatio || 1));
+  renderer.resize(window.innerWidth, window.innerHeight, Math.min(2, window.devicePixelRatio || 1) * gov.scale);
 }
-window.addEventListener("resize", resize);
-resize();
+/** A new window size or pixel ratio changes how many pixels a frame fills. */
+function fitBudget(): void {
+  gov.setBudget(budgetScale(window.innerWidth, window.innerHeight, Math.min(2, window.devicePixelRatio || 1)));
+  resize();
+}
+window.addEventListener("resize", fitBudget);
+fitBudget();
 newRun();
 // ?at=SECONDS starts the world clock later: for previewing skies and recording clips.
 const startAt = Number(params.get("at"));
@@ -1859,6 +1874,10 @@ let shownMult = "";
 let shownBest = "";
 
 function frame(now: number): void {
+  if (gov.sample(now - last, !paused && !document.hidden)) {
+    resize();
+    renderer.fx.density = particleDensity();
+  }
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;

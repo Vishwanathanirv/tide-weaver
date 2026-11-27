@@ -305,7 +305,7 @@ export class Renderer {
   private calls: { text: string; kind: CalloutKind; x: number; y: number; life: number; big: boolean }[] = [];
 
   constructor(private canvas: HTMLCanvasElement) {
-    const ctx = canvas.getContext("2d", { alpha: false });
+    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) throw new Error("Canvas 2D is not available");
     this.ctx = ctx;
     const r = mulberry32(7);
