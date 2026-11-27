@@ -19,6 +19,7 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - `src/ghost.ts` input log, link codec and `Replay` (a second spirit on its own Terrain); `src/quests.ts` goal pool and rules; `src/gear.ts` boards and scarves; `src/clip.ts` staggered MediaRecorders for 9:16 clips
 - `src/save.ts` dual-slot checksummed save vault, save codes
 - `src/main.ts` loop, input, UI panels, daily wave, auras, sharing
+- `src/rival.ts` wandering rival and the title autopilot (own Terrain, never touches the player); `gear.ts` also holds the gem upgrade curves (Vessel feeds `rules.ts`; Magnet and Core feed `makeSpirit` and are stored in ghost links)
 - `tests/` physics determinism, run rules, juice, terrain, saves, music
 
 ## Rules
@@ -38,3 +39,7 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - Set-pieces that touch physics are seeded terrain content (rails, shrine chains, whirlpools, thunderheads, the Leviathan's back and rune ring in `terrain.ts`) or pure functions of world x (`events.ts`: storm front, eclipse gravity, lagoon fog). They live on their own random stream (`er` in `chunk()`), so adding one never shifts existing rings, gems or traps. State they need (rail, whirl, bless, shrine chain) is on `Spirit` and replays exactly in `Replay`.
 - Local tooling note: native bundler binaries may be blocked by Application Control on some machines. Tests also run under plain Node with a vitest shim, and `tsc` output can be served by a tiny static server; CI is the source of truth for `npm test` and `npm run build`.
 - Game balance numbers live at the top of `physics.ts`. Tune them after playing.
+
+- Opening: `Terrain.opening` is fixed content for chunks 0 and 1 (no random draws). Meteor ramps (`Collapse.up`), shards and caverns use their own stream; meteors are timed by physics frame like collapses.
+- Coyote window: `Spirit.coyote` is physics state, so it replays in ghosts; ghost VERSION is 5.
+- The title autopilot is a `Rival` riding the real wave for the title view only; a veil dip hides the cut when it loops and when play begins.

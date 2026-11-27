@@ -40,15 +40,27 @@ export class Rival {
     this.met++;
   }
 
+  /** True while the autopilot is holding the dive. */
+  holding = false;
+
+  /** One step of the autopilot. The title uses this to carve live. */
+  tick(): void {
+    const sp = this.spirit;
+    this.holding = sp.grounded ? this.terrain.slope(sp.x) < -0.02 : sp.vy < -300 && sp.y - this.terrain.height(sp.x) < 90;
+    step(sp, this.terrain, this.holding, this.ev, STEP, false);
+  }
+
+  /** Back to the start line, as a player would begin. */
+  restart(): void {
+    this.spirit = makeSpirit(this.terrain);
+    this.holding = false;
+  }
+
   /** Steps the rival until it has taken `frames` steps. Returns true when the player has just passed it. */
   advance(frames: number, playerX: number): boolean {
     const s = this.spirit;
     if (s.frames === 0 && s.x === 0) this.appear(RIVAL_LEAD, frames);
-    while (this.spirit.frames < frames) {
-      const sp = this.spirit;
-      const hold = sp.grounded ? this.terrain.slope(sp.x) < -0.02 : sp.vy < -300 && sp.y - this.terrain.height(sp.x) < 90;
-      step(sp, this.terrain, hold, this.ev, STEP, false);
-    }
+    while (this.spirit.frames < frames) this.tick();
     const r = this.spirit;
     if (r.x - playerX > RIVAL_MAX_AHEAD) this.appear(playerX + RIVAL_LEAD, frames);
     else if (playerX - r.x > RIVAL_MAX_BEHIND && this.passed) this.appear(playerX + RIVAL_LEAD + 1200, frames);

@@ -536,7 +536,7 @@ export class Renderer {
     const depth = Math.max(0, ground - py);
     const lead = clamp(f.spirit.vy * 0.11, -150, 150);
     // Past a modest height the camera rises with the spirit, so a thunderhead or a sky-rail never takes it off screen.
-    const targetY = ground + Math.max(0, alt - 600) * 0.9 - depth * 0.85 + lead + 240 * f.intro;
+    const targetY = ground + Math.max(0, alt - 600) * 0.9 - depth * 0.85 + lead + (f.title ? 60 : 240) * f.intro;
     this.camY = this.ready ? lerp(this.camY, targetY, 1 - Math.exp(-f.dt * 4)) : targetY;
     this.ready = true;
     this.fx.update(f.dt, f.time);

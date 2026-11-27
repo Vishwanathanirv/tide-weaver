@@ -259,6 +259,23 @@ const ghostView = { x: 0, y: 0, angle: 0, a: 0 };
 /** The wandering rival: a computer-steered spirit on its own copy of the wave. Never touches physics or ghosts. */
 let rival: Rival | null = null;
 const rivalView = { x: 0, y: 0, angle: 0, a: 0 };
+/** The title carves live: an autopilot rides the real wave behind the name until the first press. */
+let demo: Rival | null = null;
+let demoAcc = 0;
+let demoWas = false;
+const veil = document.createElement("div");
+veil.className = "veil";
+document.body.appendChild(veil);
+/** A quick dip to dark that hides a cut. */
+function dip(): void {
+  veil.style.transition = "none";
+  veil.style.opacity = "0.8";
+  void veil.offsetWidth;
+  veil.style.transition = "opacity 0.6s ease";
+  veil.style.opacity = "0";
+}
+/** Reaching the end of the carve: start the loop over under a dip. */
+const DEMO_END = 3400;
 let scarfLen = 1;
 const clips = new ClipRecorder(() => score.stream);
 let clipUntil = 0;
@@ -341,6 +358,9 @@ function newRun(retry = false): void {
   replay = linkGhost && linkGhost.seed === seed ? new Replay(linkGhost, seed) : null;
   ghostFade = 1;
   rival = tip === -1 && mode !== "zen" ? new Rival(seed) : null;
+  demo = new Rival(seed);
+  demo.restart();
+  demoAcc = 0;
   if (replay && !ghostToasted) {
     ghostToasted = true;
     toast(`Racing a ghost · ${fmt(linkGhost!.score)} flow`);
@@ -1134,6 +1154,8 @@ pills.addEventListener("click", (e) => {
   const b = (e.target as HTMLElement).closest("button");
   const p = b?.dataset.pill;
   if (!p) return;
+  // A tap on the title is the first gesture the browser will take: let the music begin under the name.
+  if (titleOn && !started) wake();
   if (p === "goals") openGoals();
   else if (p === "workshop") openWorkshop();
   else if (p === "journey" || p === "zen" || p === "daily") {
@@ -1774,6 +1796,22 @@ function frame(now: number): void {
     ghostView.angle = gs.angle;
     ghostView.a = 0.8 * ghostFade;
   }
+  const demoOn = titleOn && !started && !!demo;
+  if (demoOn && demo && !paused) {
+    demoAcc += Math.min(dt, 0.1);
+    while (demoAcc >= STEP) {
+      demo.tick();
+      demoAcc -= STEP;
+      if (demo.spirit.x > DEMO_END) {
+        demo.restart();
+        dip();
+      }
+    }
+  }
+  if (demoWas && !demoOn) dip();
+  demoWas = demoOn;
+  const vs = demoOn && demo ? demo.spirit : spirit;
+  const vt = demoOn && demo ? demo.terrain : terrain;
   if (rival) {
     const rs = rival.spirit;
     const ra = paused ? 1 : acc / STEP;
@@ -1795,20 +1833,20 @@ function frame(now: number): void {
   renderer.setBass(lofi.bass());
   score.setUnderwater(spirit.under && live);
   renderer.draw({
-    spirit,
-    alpha: paused ? 1 : acc / STEP,
-    terrain,
+    spirit: vs,
+    alpha: paused ? 1 : demoOn ? demoAcc / STEP : acc / STEP,
+    terrain: vt,
     weights,
     time: clock,
     dt: paused ? 0 : dt,
     aura: save.aura,
-    holding: holding(),
+    holding: demoOn && demo ? demo.holding : holding(),
     reducedMotion: save.reducedMotion,
-    speed,
+    speed: demoOn ? currentSpeed(vs) : speed,
     light: mode === "zen" ? 1 : run.light,
     tier: run.tier,
     bestX: mode === "journey" && save.bestDistance > 2000 ? save.bestDistance : -1,
-    frame: spirit.frames,
+    frame: vs.frames,
     hazardsLive: hazardsOn(),
     shake: save.shake,
     flashes: save.flashes,

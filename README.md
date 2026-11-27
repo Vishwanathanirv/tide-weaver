@@ -60,6 +60,10 @@ Zen mode keeps every biome but nothing can hurt you.
 - **The water answers:** a shallow, perfect entry skims with a silky hiss; slamming in flat brings a sub thud, a tall column of water and a shake. Up high the score thins to air and chimes; deep down it warms and a whale-like swell sings.
 - **The rider is the meter:** the scarf shortens and dims as your light fades, and a shimmer runs down the board when a Surge is ready.
 - **Goals:** three goals are always active (breach, dead-centre rings, double backflips, Surges and more). Finish all three to rank up, earn gems and get a harder set.
+- **Upgrades:** three gem upgrades, Lv 1 to 5, the first for 15 to 25 gems. Light Vessel (+8% light duration per level), Tide Magnet (wider ring and gem pull, even outside Surge), Surge Core (recharge from 4.5 s toward 2.8 s, cheaper in light).
+- **Opening:** the first 450 m is scripted: two rings, a low sky-rail, four rings and a whirlpool, with no traps.
+- **Wonders:** meteor splash-ramps with gold shards, abyssal caverns with a crystal gem trail, a wandering rival spirit to pass for a gem, and a coyote window (let go up to 0.12 s late over a crest and you still launch).
+- **Feel:** a rising pitch chain on rings and clean landings (resets on a slam), short haptic clicks on touch devices (Settings), larger score and goals on phones.
 - **Workshop:** spend abyss gems on boards that change handling (Anchor dives harder, Feather floats and flips fast) and scarves that lengthen the scarf and the light trail.
 - **Ghost races:** the Challenge link carries your whole run in a few hundred bytes. Whoever opens it races a translucent copy of you on the same wave, with the gap shown live. No server.
 - **Clips:** the last ten seconds are kept in the background. Press C, or tap the button after a big moment, to save a 9:16 video with sound, or share it straight from a phone. Off by default on touch screens; switch in Settings.
