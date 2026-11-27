@@ -4,7 +4,7 @@ import type { Aura } from "./save";
 import { mulberry32 } from "./rng";
 import type { CalloutKind } from "./juice";
 import { Surfer } from "./surfer";
-import { abyss, caustics, hazards, type View } from "./world";
+import { abyss, birds, caustics, hazards, props, type View } from "./world";
 
 type RGB = [number, number, number];
 
@@ -407,6 +407,11 @@ export class Renderer {
 
     this.sky(f, wt);
     this.mountains(wt);
+    this.view.ctx = ctx;
+    this.view.w = w;
+    this.view.h = h;
+    this.view.scale = this.scale;
+    birds(this.view, f.time, wt[3] + wt[4] > 0.5);
     this.bestMarker(f);
     this.ringsLayer(f);
     this.seaLayer(f, wt);
@@ -418,6 +423,7 @@ export class Renderer {
     caustics(this.view, f.terrain, f.time, f.spirit.under);
     abyss(this.view, f.terrain, f.time);
     hazards(this.view, f.terrain, f.frame, f.hazardsLive);
+    props(this.view, f.terrain, f.time);
     this.trailLayer(f, px, py);
     this.particlesLayer(f, wt);
     this.spiritLayer(f, px, py);
@@ -435,6 +441,15 @@ export class Renderer {
     if (f.light < 0.999) {
       ctx.fillStyle = `rgba(4,4,16,${(1 - f.light) * 0.5})`;
       ctx.fillRect(-20, -20, w + 40, h + 40);
+    }
+    // A soft lift of light on every beat, stronger when the music is locked in.
+    if (!f.reducedMotion) {
+      const ph = (f.frame % 41) / 41;
+      const beat = Math.max(0, 1 - ph * 5);
+      if (beat > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${beat * (0.025 + this.bars * 0.05)})`;
+        ctx.fillRect(-20, -20, w + 40, h + 40);
+      }
     }
     if (f.spirit.under) {
       ctx.fillStyle = "rgba(0,30,60,0.22)";

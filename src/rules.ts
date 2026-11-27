@@ -108,6 +108,8 @@ export function updateRun(r: Run, s: Spirit, ev: StepEvents, dx: number, dt: num
   else if (ev.landing === "good") r.light += 0.04;
   else if (ev.landing === "rough") r.light -= 0.06;
   if (ev.ring) r.light += 0.16 * ev.ring;
+  if (ev.gem) r.light += 0.08 * ev.gem;
+  if (ev.breach) r.light += 0.1;
   if (r.light > 1) r.light = 1;
   if (r.light <= 0) {
     r.light = 0;

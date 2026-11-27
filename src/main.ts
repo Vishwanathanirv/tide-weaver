@@ -103,6 +103,7 @@ ui.innerHTML = `
     <button id="b-daily" aria-label="Today's wave" data-tip="Today's wave">${icon(ICON.sun)}</button>
     <button id="b-pause" aria-label="Pause" data-tip="Pause · P">${icon(ICON.pause)}</button>
   </nav>
+  <div class="trip" id="trip" aria-hidden="true"><i id="trip-fill"></i><span style="left:33.3%"></span><span style="left:66.6%"></span><b id="trip-name">Twilight Shallows</b></div>
   <p class="hint" id="hint" hidden></p>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <a class="tag" href="./" aria-label="coralctrl">a coralctrl game</a>
@@ -117,6 +118,8 @@ const lightEl = $("light");
 const lightFill = $("light-fill");
 const multEl = $("mult");
 const chainEl = $("chain");
+const tripFill = $("trip-fill");
+const tripName = $("trip-name");
 const bestEl = $("best");
 const hintEl = $("hint");
 const scrim = $("scrim");
@@ -163,7 +166,7 @@ let tip = save.tutorialDone ? -1 : 0;
 let tipHold = 0;
 let tipTimer = 0;
 const TIPS = ["Hold on a downhill to dive", "Let go at the bottom to fly", "Land along a downhill for a Perfect", "Perfect dives and rings refill your light", "Hold in the air to backflip · let go to land flat"];
-const hazardsOn = () => mode !== "zen" && tip === -1;
+const hazardsOn = () => mode !== "zen" && tip === -1 && ending < 0;
 
 function addTrick(name: string, pts: number): void {
   chain.push(name);
@@ -187,7 +190,7 @@ function bestFlow(): number {
   return save.bestEndless;
 }
 
-function newRun(): void {
+function newRun(retry = false): void {
   const seed = mode === "daily" ? hashString("daily:" + today) : hashString("seed:" + seedLabel);
   terrain = new Terrain(seed);
   spirit = makeSpirit(terrain);
@@ -215,7 +218,7 @@ function newRun(): void {
   score.song.length = 0;
   renderer.resetTrail();
   lightEl.hidden = mode === "zen";
-  save.stats.runs++;
+  if (!retry) save.stats.runs++;
   persist();
   const url = new URL(location.href);
   url.search = mode === "daily" ? `?d=${today}` : `?seed=${seedLabel}${mode === "zen" ? "&zen=1" : ""}`;
@@ -868,7 +871,7 @@ function tick(dt: number): void {
     tipTimer += dt;
     if (ev.flips || tipTimer > 9) tip = 5;
   }
-  if (tip === 5) {
+  if (tip === 5 && spirit.grounded) {
     tip = -1;
     save.tutorialDone = true;
     run.gentle = false;
@@ -876,6 +879,11 @@ function tick(dt: number): void {
   }
 
   if (rev.ended) {
+    if (chain.length) {
+      run.score += Math.round(chainPts * (1 + 0.25 * (chain.length - 1)) * run.mult);
+      chain.length = 0;
+      chainPts = 0;
+    }
     ending = 0;
     score.fade();
   }
@@ -927,7 +935,7 @@ function frame(now: number): void {
     if (respawn >= 0) {
       respawn -= dt;
       if (respawn < 0) {
-        newRun();
+        newRun(true);
         started = true;
       }
     }
@@ -986,6 +994,9 @@ function frame(now: number): void {
     frame: spirit.frames,
     hazardsLive: hazardsOn(),
   });
+  tripFill.style.transform = `scaleX(${Math.min(1, spirit.distance / 30000)})`;
+  const bn = BIOMES[biomeAt(spirit.x)];
+  if (tripName.textContent !== bn) tripName.textContent = bn;
   const ct = chain.length ? chainText() : "";
   if (chainEl.textContent !== ct) chainEl.textContent = ct;
 

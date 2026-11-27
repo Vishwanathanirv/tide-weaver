@@ -27,8 +27,17 @@ describe("flips and wipe-outs", () => {
     const ev = makeEvents();
     s.vy = 600;
     const a0 = s.angle;
-    for (let i = 0; i < 30; i++) step(s, t, true, ev);
+    for (let i = 0; i < 45; i++) step(s, t, true, ev);
     expect(s.angle - a0).toBeGreaterThan(3);
+  });
+
+  it("a short hold in the air is a dive, not a flip", () => {
+    const t = new Terrain(11);
+    const s = makeSpirit(t);
+    const ev = makeEvents();
+    s.vy = 600;
+    for (let i = 0; i < 9; i++) step(s, t, true, ev);
+    expect(s.airRot).toBe(0);
     expect(Math.abs(wrap(Math.PI * 3))).toBeCloseTo(Math.PI, 6);
   });
 });

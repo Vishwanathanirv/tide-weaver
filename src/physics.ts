@@ -9,6 +9,8 @@ export const STEP = 1 / 60;
 export const FLIP_RATE = 7.2;
 /** How fast the board settles back towards the flight path once you let go. */
 export const ALIGN_RATE = 3.2;
+/** A hold shorter than this in the air is a dive, not a flip. */
+export const FLIP_DELAY = 0.2;
 /** Board more than this far from the slope at touchdown: rough. Past CRASH_ANGLE: wipe-out. */
 export const ROUGH_ANGLE = 0.7;
 export const CRASH_ANGLE = 1.9;
@@ -66,6 +68,8 @@ export interface Spirit {
   angle: number;
   /** Rotation accumulated during this flight. */
   airRot: number;
+  /** How long the current hold has lasted in the air. */
+  holdAir: number;
   combo: number;
   bestCombo: number;
   airTime: number;
@@ -81,7 +85,7 @@ export interface Spirit {
 
 export function makeSpirit(terrain: Terrain): Spirit {
   const y = terrain.height(0) + 220;
-  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0 };
+  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0 };
 }
 
 export function makeEvents(): StepEvents {
@@ -177,7 +181,8 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
   s.y += s.vy * dt;
   s.airTime += dt;
   // Holding in the air tucks into a backflip; letting go settles the board to the flight path.
-  if (holding) {
+  s.holdAir = holding ? s.holdAir + dt : 0;
+  if (holding && s.holdAir > FLIP_DELAY) {
     s.angle += FLIP_RATE * dt;
     s.airRot += FLIP_RATE * dt;
   } else {

@@ -153,3 +153,77 @@ export function hazards(v: View, t: Terrain, frame: number, live: boolean): void
     }
   });
 }
+
+const hash = (n: number) => {
+  const x = Math.sin(n * 91.7 + 17.3) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/** Buoys bobbing on the swell with a blinking lamp, one or two per chunk, placed by hash. */
+export function props(v: View, t: Terrain, time: number): void {
+  const { ctx } = v;
+  chunks(v, (c) => {
+    const n = hash(c) < 0.55 ? 1 : 0;
+    for (let i = 0; i < n; i++) {
+      const wx = c * RING_CHUNK + 300 + hash(c * 3 + i) * 1400;
+      const x = v.sx(wx);
+      if (x < -30 || x > v.w + 30) continue;
+      const k = t.slope(wx);
+      const y = v.sy(t.height(wx)) + Math.sin(time * 2 + wx) * 2;
+      const s = Math.max(0.5, v.scale);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-Math.atan(k) * 0.8 + Math.sin(time * 1.6 + wx) * 0.12);
+      ctx.fillStyle = "#1a1424";
+      ctx.beginPath();
+      ctx.moveTo(-9 * s, 0);
+      ctx.lineTo(9 * s, 0);
+      ctx.lineTo(5 * s, -14 * s);
+      ctx.lineTo(-5 * s, -14 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#c2203a";
+      ctx.fillRect(-5 * s, -10 * s, 10 * s, 3 * s);
+      ctx.fillStyle = "#1a1424";
+      ctx.fillRect(-1.2 * s, -26 * s, 2.4 * s, 12 * s);
+      const on = Math.sin(time * 3 + wx) > 0.2;
+      if (on) {
+        ctx.globalCompositeOperation = "lighter";
+        const g = ctx.createRadialGradient(0, -28 * s, 0, 0, -28 * s, 16 * s);
+        g.addColorStop(0, "rgba(255,210,120,0.9)");
+        g.addColorStop(1, "rgba(255,210,120,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(-16 * s, -44 * s, 32 * s, 32 * s);
+        ctx.globalCompositeOperation = "source-over";
+      }
+      ctx.fillStyle = on ? "#ffe2a0" : "#5a4a3a";
+      ctx.beginPath();
+      ctx.arc(0, -28 * s, 2.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  });
+}
+
+/** A loose flock of birds crossing the sky now and then; ink-dark in daylight, pale at night. */
+export function birds(v: View, time: number, dark: boolean): void {
+  const { ctx } = v;
+  const period = 23;
+  const n = Math.floor(time / period);
+  const ph = (time % period) / 14;
+  if (ph > 1) return;
+  const y0 = v.h * (0.14 + hash(n) * 0.18);
+  ctx.strokeStyle = dark ? "rgba(30,24,40,0.75)" : "rgba(235,235,255,0.6)";
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = "round";
+  for (let i = 0; i < 7; i++) {
+    const x = v.w * (1.1 - ph * 1.3) + (i % 3) * 22 + Math.floor(i / 3) * 30;
+    const y = y0 + (i % 2) * 14 + Math.floor(i / 3) * 9 + Math.sin(time * 3 + i) * 3;
+    const flap = Math.sin(time * 9 + i * 1.7) * 4;
+    ctx.beginPath();
+    ctx.moveTo(x - 7, y - flap);
+    ctx.quadraticCurveTo(x - 3, y - 2, x, y);
+    ctx.quadraticCurveTo(x + 3, y - 2, x + 7, y - flap);
+    ctx.stroke();
+  }
+}
