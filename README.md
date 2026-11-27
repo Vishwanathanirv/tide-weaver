@@ -13,6 +13,7 @@ A coralctrl game. Free, in the browser, no sign-up.
 - **Press to start.** The spirit glides forward on its own; your only control is when to press.
 - **Hold** (Space, click or touch) to dive down a slope and gain speed. Let go at the bottom to fly off the next crest.
 - **Perfect dive:** land along a downslope. It builds your streak and speeds you up.
+- **Zen earns nothing:** no gems and no goals, since nothing there can hurt you.
 - **Surge:** a burst of speed and a ring magnet for a little over a second, for 12% of your light. It recharges in 4.5 s, works on the ground and in the air, and is free in Zen.
 - **Your light** fades as you ride. Perfect dives and rings refill it. When it goes out, the run ends and tells you why.
 - **Flow tiers:** ride without a rough landing to climb from Calm to Flowing, Radiant and Transcendent. Each tier raises the multiplier and brightens your trail.
@@ -20,7 +21,7 @@ A coralctrl game. Free, in the browser, no sign-up.
 | Key | Action |
 | --- | --- |
 | Space, click, touch | Dive |
-| Shift, X, right-click, second finger | Surge |
+| Shift, X, right-click, second finger, or the Surge button on a touch screen | Surge |
 | C | Save the last 10 seconds as a clip |
 | Space on the summary | Ride again |
 | P or Esc | Pause |
@@ -61,6 +62,13 @@ Zen mode keeps every biome but nothing can hurt you.
 - **Workshop:** spend abyss gems on boards that change handling (Anchor dives harder, Feather floats and flips fast) and scarves that lengthen the scarf and the light trail.
 - **Ghost races:** the Challenge link carries your whole run in a few hundred bytes. Whoever opens it races a translucent copy of you on the same wave, with the gap shown live. No server.
 - **Clips:** the last ten seconds are kept in the background. Press C, or tap the button after a big moment, to save a 9:16 video with sound, or share it straight from a phone. Off by default on touch screens; switch in Settings.
+- **A title that is the world:** the game opens on a live, slowly panning sea with the name floating in the sky. Press to begin and it dissolves as the camera swoops down behind the surfer, already moving.
+- **Layers:** far horizon landmarks, a slower dark sea behind the playable wave, the wave itself with rim light, foam caps on steep faces and shafts of light into the water, and dark reeds passing in front.
+- **Things that live here:** sea birds perched on crests that burst upward as you carve past, jellyfish pulsing in the deep, schools of glowing fish that dart away from your board, lanterns bobbing on the swells, tattered banners on the sea stacks, and wind streaks across the sky.
+- **Lagoons:** the last 2 km of every kilometre is calm: no traps, extra rings and gems, more lanterns.
+- **The tidal wave:** at 3 km a wall of water rises behind you. Stay ahead of it for about 45 seconds, or get 3.2 km clear, and it falls away (+5 gems). Let it catch you and the light goes out. Never in Zen or during the first-run tips.
+- **A rider with weight:** crouches low on a dive, leans back up a crest, throws their arms out at the top of a jump, and trails droplets and ripples when skimming just above the water.
+- **Sky:** Settings can fix one of the five skies instead of letting them change every minute.
 - **Dolphins:** keep a streak of three perfect dives and a pod leaps alongside you.
 - **A living sea:** ripples on the surface, moon and sun reflections, glowing plankton below, fireflies above and the odd shooting star.
 - **Four shores, four instruments:** Harp Shallows, Glass Reef, Reed Marsh and Deep Strings each play your melody differently.

@@ -31,4 +31,8 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - Ghosts depend on determinism: anything that changes a run's physics (new input, new per-step state) must be recorded in `Recorder` and replayed in `Replay`, and covered in `tests/ghost.test.ts`. Runs started during the first-run tips are not shareable as ghosts.
 - Board stats (`gear.ts`) feed physics through `makeSpirit(terrain, dive, flip)`; scarves are visual only.
 - Landmark positions come from `landmarkX/landmarkKind` (the gate is exactly on every 5th km). Add new kinds to `KINDS` and `silhouette`.
+- The title is part of the render: `FrameState.title`/`intro` drive the camera pan and swoop and `titleLayer`. It shows once, until the first press; the HUD hides via `body.titling`.
+- The tidal wave (`tide.ts`) depends only on the physics step count and never touches physics; a run it ends is still a valid ghost. It is off in Zen and while `hazardsOn()` is false.
+- Lagoons: `lagoonAt(x)` (terrain.ts) is the last 2 km of each km; keep hazard generation behind `!lagoon`.
+- Dev-only URL params (stripped from production): `km`, `streak`, `obs`, `notips`, `tgap`; `window.__tw` for browser tests.
 - Game balance numbers live at the top of `physics.ts`. Tune them after playing.

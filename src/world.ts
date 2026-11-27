@@ -1,4 +1,4 @@
-import { GATE_HEIGHT, RING_CHUNK, gateShut, spikeUp, BEAT_STEPS, type Terrain } from "./terrain";
+import { GATE_HEIGHT, RING_CHUNK, gateShut, lagoonAt, spikeUp, BEAT_STEPS, type Terrain } from "./terrain";
 
 /** What the world layer needs from the camera. */
 export interface View {
@@ -469,7 +469,11 @@ export function landmarkX(k: number): number {
   return k > 0 && k % 5 === 0 ? k * LANDMARK_SPACING : k * LANDMARK_SPACING + (lh(k + 40) - 0.5) * LANDMARK_SPACING * 0.4;
 }
 
+/** Where a landmark flies a flag, set by silhouette() and read by landmarks(). */
+let flagAt: [number, number] | null = null;
+
 function silhouette(ctx: CanvasRenderingContext2D, kind: string, u: number, k: number): void {
+  flagAt = null;
   ctx.beginPath();
   switch (kind) {
     case "lighthouse":
@@ -489,6 +493,7 @@ function silhouette(ctx: CanvasRenderingContext2D, kind: string, u: number, k: n
       ctx.lineTo(1.6 * u, 0);
       break;
     case "stack":
+      flagAt = [-0.05 * u, -2.7 * u];
       ctx.moveTo(-0.9 * u, 0);
       ctx.lineTo(-0.7 * u, -1.1 * u);
       ctx.lineTo(-0.45 * u, -1.9 * u);
@@ -583,6 +588,21 @@ export function landmarks(v: View, camX: number, groundY: number, time: number, 
     ctx.fillStyle = `rgb(${tint[0] * 0.62 | 0},${tint[1] * 0.62 | 0},${tint[2] * 0.7 | 0})`;
     silhouette(ctx, kind, size, k);
     ctx.fill();
+    if (flagAt) {
+      // A tattered banner on top of the stack, streaming in the wind.
+      const [fx, fy] = flagAt;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(fx, fy - size * 0.7);
+      ctx.lineWidth = Math.max(1, size * 0.04);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(fx, fy - size * 0.7);
+      for (let i = 1; i <= 6; i++) ctx.lineTo(fx + i * size * 0.1, fy - size * 0.7 + Math.sin(time * 4 + i * 0.9 + k) * size * 0.05 * i * 0.4);
+      for (let i = 6; i >= 1; i--) ctx.lineTo(fx + i * size * 0.1, fy - size * 0.5 + Math.sin(time * 4 + i * 0.9 + k) * size * 0.05 * i * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
     // At night a thin rim of moonlight keeps the shape readable against the dark sky.
     if (night > 0.2) {
       ctx.strokeStyle = `rgba(150,175,255,${0.35 * night})`;
@@ -673,4 +693,176 @@ export function foreground(v: View, camX: number, time: number, tint: [number, n
     ctx.stroke();
   }
   ctx.lineCap = "butt";
+}
+
+// ---------------------------------------------------------------- ambient life
+
+/**
+ * Sea birds perched on the crests. Each flock stands still until you come close, then bursts
+ * upward and away. `perch` remembers when each chunk's flock took off.
+ */
+export function perched(v: View, t: Terrain, perch: Map<number, number>, spiritX: number, time: number, tint: [number, number, number]): void {
+  const { ctx } = v;
+  const from = Math.max(1, Math.floor(v.wx(-200) / RING_CHUNK) - 1);
+  const to = Math.floor(v.wx(v.w + 200) / RING_CHUNK) + 1;
+  const s = Math.max(0.6, v.scale);
+  ctx.lineCap = "round";
+  for (let c = from; c <= to; c++) {
+    if (lh(c * 7 + 1) > 0.5) continue;
+    const bx = c * RING_CHUNK + 300 + lh(c * 7 + 2) * 1400;
+    const n = 3 + Math.floor(lh(c * 7 + 3) * 3);
+    let t0 = perch.get(c);
+    if (t0 === undefined && spiritX > bx - 460 && spiritX < bx + 260) {
+      t0 = time;
+      perch.set(c, time);
+    }
+    ctx.fillStyle = `rgb(${tint[0] * 0.22 | 0},${tint[1] * 0.22 | 0},${tint[2] * 0.3 | 0})`;
+    ctx.strokeStyle = ctx.fillStyle;
+    for (let i = 0; i < n; i++) {
+      const x0 = bx + i * 30;
+      const surface = t.height(x0);
+      if (t0 === undefined) {
+        // Standing on the crest: a small body, a head and a tail.
+        const sx = v.sx(x0);
+        const sy = v.sy(surface) - 3 * s;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy - 4 * s, 5.5 * s, 3.4 * s, -0.15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(sx + 5 * s, sy - 8 * s, 2.4 * s, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = Math.max(1, 1.6 * s);
+        ctx.beginPath();
+        ctx.moveTo(sx - 4 * s, sy - 4 * s);
+        ctx.lineTo(sx - 10 * s, sy - 2 * s);
+        ctx.stroke();
+      } else {
+        const age = time - t0;
+        if (age > 4.5) continue;
+        // Scatter: up and forward at slightly different rates, wings beating.
+        const x = x0 + age * (260 + i * 45);
+        const y = surface + 8 + age * (170 + i * 35) - age * age * 8;
+        const sx = v.sx(x);
+        const sy = v.sy(y);
+        if (sx < -60 || sx > v.w + 60) continue;
+        const flap = Math.sin(age * 20 + i * 1.7) * 6 * s;
+        ctx.globalAlpha = Math.min(1, (4.5 - age) / 1.5);
+        ctx.lineWidth = Math.max(1.2, 1.8 * s);
+        ctx.beginPath();
+        ctx.moveTo(sx - 9 * s, sy + flap);
+        ctx.quadraticCurveTo(sx - 3 * s, sy - Math.abs(flap) * 0.4, sx, sy);
+        ctx.quadraticCurveTo(sx + 3 * s, sy - Math.abs(flap) * 0.4, sx + 9 * s, sy + flap);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  ctx.lineCap = "butt";
+  if (perch.size > 40) for (const k of perch.keys()) if (k * RING_CHUNK < spiritX - 9000) perch.delete(k);
+}
+
+const FISH = 9;
+
+/**
+ * Things that live in the water and on it: jellyfish pulsing in the deep, schools of glowing
+ * fish that dart away from you, and paper lanterns bobbing on the swells. Placed from the chunk
+ * number alone, so the same wave always has the same creatures in the same places.
+ */
+export function life(v: View, t: Terrain, spiritX: number, spiritY: number, time: number, night: number): void {
+  const { ctx } = v;
+  const from = Math.max(1, Math.floor(v.wx(-250) / RING_CHUNK) - 1);
+  const to = Math.floor(v.wx(v.w + 250) / RING_CHUNK) + 1;
+  const s = Math.max(0.55, v.scale);
+  for (let c = from; c <= to; c++) {
+    const lagoon = lagoonAt(c * RING_CHUNK);
+    // Jellyfish: a pulsing bell and trailing tentacles.
+    if (lh(c * 13 + 3) < 0.75) {
+      const x = c * RING_CHUNK + lh(c * 13 + 4) * RING_CHUNK + Math.sin(time * 0.2 + c) * 60;
+      const y = t.height(x) - 95 - lh(c * 13 + 5) * 210 + Math.sin(time * 0.5 + c * 2) * 14;
+      const sx = v.sx(x);
+      const sy = v.sy(y);
+      if (sx > -80 && sx < v.w + 80) {
+        const pulse = 0.5 + 0.5 * Math.sin(time * 1.7 + c);
+        const r = (15 + pulse * 4) * s;
+        ctx.globalCompositeOperation = "lighter";
+        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 3);
+        g.addColorStop(0, `rgba(214,160,255,${0.35 + 0.15 * night})`);
+        g.addColorStop(1, "rgba(214,160,255,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(sx - r * 3, sy - r * 3, r * 6, r * 6);
+        ctx.fillStyle = "rgba(225,190,255,0.55)";
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, r, r * (0.6 + 0.25 * (1 - pulse)), 0, Math.PI, 0);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(225,190,255,0.4)";
+        ctx.lineWidth = Math.max(1, 1.4 * s);
+        for (let k = -2; k <= 2; k++) {
+          ctx.beginPath();
+          ctx.moveTo(sx + k * r * 0.4, sy);
+          ctx.quadraticCurveTo(sx + k * r * 0.5 + Math.sin(time * 2 + k) * 5 * s, sy + r * 1.2, sx + k * r * 0.35 + Math.sin(time * 1.6 + k * 2) * 7 * s, sy + r * 2.3);
+          ctx.stroke();
+        }
+        ctx.globalCompositeOperation = "source-over";
+      }
+    }
+    // A school of small glowing fish. Each swims its own loop and is pushed away from the spirit.
+    if (lh(c * 13 + 6) < 0.8) {
+      const cx = c * RING_CHUNK + lh(c * 13 + 7) * RING_CHUNK + Math.sin(time * 0.3 + c) * 130;
+      const cy = t.height(cx) - 60 - lh(c * 13 + 8) * 170;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = `rgba(120,255,230,${0.55 + 0.3 * night})`;
+      for (let i = 0; i < FISH; i++) {
+        const a = time * (0.7 + (i % 3) * 0.15) + i * 0.9 + c;
+        let fx = cx + Math.cos(a) * (40 + (i % 4) * 14);
+        let fy = cy + Math.sin(a * 1.3) * (22 + (i % 3) * 8);
+        const dx = fx - spiritX;
+        const dy = fy - spiritY;
+        const d = Math.hypot(dx, dy) || 1;
+        if (d < 300) {
+          const push = (1 - d / 300) * (1 - d / 300) * 260;
+          fx += (dx / d) * push;
+          fy += (dy / d) * push;
+        }
+        const sx = v.sx(fx);
+        if (sx < -30 || sx > v.w + 30) continue;
+        const sy = v.sy(fy);
+        const heading = Math.atan2(-Math.cos(a * 1.3) * 0.3, -Math.sin(a));
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(heading);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 5 * s, 2 * s, 0, 0, Math.PI * 2);
+        ctx.moveTo(-4 * s, 0);
+        ctx.lineTo(-8 * s, -2.4 * s);
+        ctx.lineTo(-8 * s, 2.4 * s);
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.globalCompositeOperation = "source-over";
+    }
+    // Lanterns bobbing on the swells, more of them in a lagoon.
+    if (lagoon || lh(c * 13 + 9) < 0.45) {
+      const count = lagoon ? 3 : 1;
+      for (let i = 0; i < count; i++) {
+        const x = c * RING_CHUNK + lh(c * 13 + 10 + i) * RING_CHUNK;
+        const sx = v.sx(x);
+        if (sx < -40 || sx > v.w + 40) continue;
+        const y = t.height(x) + 7 + Math.sin(time * 1.4 + c + i * 2) * 5;
+        const sy = v.sy(y);
+        const flick = 0.8 + 0.2 * Math.sin(time * 7 + c + i);
+        ctx.globalCompositeOperation = "lighter";
+        const g = ctx.createRadialGradient(sx, sy - 6 * s, 0, sx, sy - 6 * s, 26 * s);
+        g.addColorStop(0, `rgba(255,196,120,${0.5 * flick * (0.5 + 0.5 * night)})`);
+        g.addColorStop(1, "rgba(255,160,80,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(sx - 26 * s, sy - 32 * s, 52 * s, 52 * s);
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = "rgba(255,226,170,0.95)";
+        ctx.fillRect(sx - 4 * s, sy - 11 * s, 8 * s, 10 * s);
+        ctx.fillStyle = "rgba(60,30,20,0.85)";
+        ctx.fillRect(sx - 5 * s, sy - 12 * s, 10 * s, 2 * s);
+        ctx.fillRect(sx - 5 * s, sy - 2 * s, 10 * s, 2 * s);
+      }
+    }
+  }
 }

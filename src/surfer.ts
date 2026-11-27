@@ -12,6 +12,10 @@ export interface Look {
   surgeReady: boolean;
   /** 0..1 while a Surge burns. */
   surgeOn: number;
+  /** Posture, each eased by the renderer: 0..1 crouch on dives, -1..1 lean (uphill leans back), 0..1 arms thrown out at the peak. */
+  crouch: number;
+  lean: number;
+  arms: number;
 }
 
 export class Surfer {
@@ -68,8 +72,8 @@ export class Surfer {
     const rot = -angle;
     const s = size / 10;
     // Scarf anchor: the rider's neck, rotated with the board.
-    const lx = 1.5 * s;
-    const ly = (tuck ? -18 : -24) * s;
+    const lx = (1.5 + (tuck ? 0 : o.lean * -4)) * s;
+    const ly = (tuck ? -18 : -24 + o.crouch * 7) * s;
     const nx = sx + lx * Math.cos(rot) - ly * Math.sin(rot);
     const ny = sy + lx * Math.sin(rot) + ly * Math.cos(rot);
     // The scarf is the light made visible: it shortens and dims as the light fades.
@@ -124,9 +128,13 @@ export class Surfer {
     }
 
     // The rider: crouched for speed, tucked tight in a flip.
-    const knee = tuck ? 14 : grounded ? 9 : 7;
-    const hip = tuck ? -10 : -14;
-    const shoulder = tuck ? -18 : -24;
+    // Posture: low on a dive, leaning back up a crest, arms flung out at the top of a jump.
+    const cr = tuck ? 0 : o.crouch;
+    const lean = tuck ? 0 : o.lean * -4;
+    const arms = tuck ? 0 : o.arms;
+    const knee = (tuck ? 14 : grounded ? 9 : 7) + cr * 5;
+    const hip = tuck ? -10 : -14 + cr * 4;
+    const shoulder = tuck ? -18 : -24 + cr * 7;
     ctx.strokeStyle = "#0c0a14";
     ctx.lineWidth = 4.2 * s;
     ctx.beginPath();
@@ -140,7 +148,7 @@ export class Surfer {
     ctx.lineWidth = 5.2 * s;
     ctx.beginPath();
     ctx.moveTo(0, hip * s);
-    ctx.lineTo(1.5 * s, shoulder * s);
+    ctx.lineTo((1.5 + lean) * s, shoulder * s);
     ctx.stroke();
     ctx.lineWidth = 3.2 * s;
     ctx.beginPath();
@@ -148,21 +156,21 @@ export class Surfer {
       ctx.moveTo(1.5 * s, (shoulder + 2) * s);
       ctx.lineTo(7 * s, (hip + 2) * s);
     } else {
-      ctx.moveTo(1.5 * s, (shoulder + 2) * s);
-      ctx.lineTo(-11 * s, (shoulder + 7) * s);
-      ctx.moveTo(1.5 * s, (shoulder + 2) * s);
-      ctx.lineTo(13 * s, (shoulder + 5) * s);
+      ctx.moveTo((1.5 + lean) * s, (shoulder + 2) * s);
+      ctx.lineTo((-11 - 6 * arms) * s, (shoulder + 7 - 8 * arms) * s);
+      ctx.moveTo((1.5 + lean) * s, (shoulder + 2) * s);
+      ctx.lineTo((13 + 6 * arms) * s, (shoulder + 5 - 7 * arms) * s);
     }
     ctx.stroke();
     ctx.fillStyle = "#0c0a14";
     ctx.beginPath();
-    ctx.arc(2.5 * s, (shoulder - 5) * s, 4.6 * s, 0, Math.PI * 2);
+    ctx.arc((2.5 + lean) * s, (shoulder - 5) * s, 4.6 * s, 0, Math.PI * 2);
     ctx.fill();
     // Rim light so the silhouette reads on dark skies.
     ctx.strokeStyle = `rgba(${color},0.75)`;
     ctx.lineWidth = 1.1 * s;
     ctx.beginPath();
-    ctx.arc(2.5 * s, (shoulder - 5) * s, 4.6 * s, -Math.PI * 0.9, -Math.PI * 0.1);
+    ctx.arc((2.5 + lean) * s, (shoulder - 5) * s, 4.6 * s, -Math.PI * 0.9, -Math.PI * 0.1);
     ctx.stroke();
     ctx.restore();
   }

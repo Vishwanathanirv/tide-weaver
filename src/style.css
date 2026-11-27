@@ -728,6 +728,44 @@ kbd {
   font: inherit;
 }
 
+/* While the title shows, only the sky and the sea: the score and trip bar wait. */
+.hud,
+.trip {
+  transition: opacity 0.9s ease;
+}
+.titling .hud,
+.titling .trip {
+  opacity: 0;
+}
+
+.surgebtn {
+  position: absolute;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(10, 12, 30, 0.55);
+  color: var(--ink);
+  font: 700 12px var(--round);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: auto;
+  touch-action: none;
+  opacity: 0.45;
+  transition: opacity 0.2s, box-shadow 0.2s;
+}
+
+.surgebtn.ready {
+  opacity: 0.95;
+  box-shadow: 0 0 18px rgba(190, 230, 255, 0.55);
+}
+
+.clipbtn {
+  bottom: 96px;
+}
+
 .sw-board { background: linear-gradient(135deg, #ffd59a, #7b5cff); }
 .sw-scarf { background: linear-gradient(135deg, #6fe3ff, #ff7bd5); }
 .aura[data-poor] { opacity: 0.55; }

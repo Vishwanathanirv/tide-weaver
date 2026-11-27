@@ -5,7 +5,7 @@ import type { Look } from "./surfer";
 import { mulberry32 } from "./rng";
 import type { CalloutKind } from "./juice";
 import { Surfer } from "./surfer";
-import { abyss, birds, caustics, foreground, hazards, landmarks, observatory, pod, props, type View } from "./world";
+import { abyss, birds, caustics, foreground, hazards, landmarks, life, observatory, perched, pod, props, type View } from "./world";
 
 type RGB = [number, number, number];
 
@@ -209,6 +209,11 @@ export interface FrameState {
   surgeReady: boolean;
   /** Another player's ghost, in world space, with its fade (0..1); null when there is none. */
   ghost: { x: number; y: number; angle: number; a: number } | null;
+  /** The title is showing (waiting for the first press), and how much of it is left (1 to 0). */
+  title: boolean;
+  intro: number;
+  /** The tidal wave wall, in world space, with its fade; null when there is none. */
+  tide: { x: number; a: number } | null;
 }
 
 const TRAIL_MAX = 120;
@@ -228,7 +233,7 @@ export class Renderer {
   private seaN = 0;
   private trail = new Float32Array(TRAIL_MAX * 2);
   private trailCap = 48;
-  private look: Look = { scarf: 1, surgeReady: false, surgeOn: 0 };
+  private look: Look = { scarf: 1, surgeReady: false, surgeOn: 0, crouch: 0, lean: 0, arms: 0 };
   /** Foam left on the crests you carved, and ring fragments floating on the water. */
   private foamX = new Float32Array(160);
   private foamAge = new Float32Array(160).fill(99);
@@ -265,6 +270,11 @@ export class Renderer {
   private diveK = 0;
   private surgeK = 0;
   private podA = 0;
+  private pan = 0;
+  private perch = new Map<number, number>();
+  private poseCrouch = 0;
+  private poseLean = 0;
+  private poseArms = 0;
   private surfer = new Surfer();
   private view: View = { ctx: null as unknown as CanvasRenderingContext2D, w: 1, h: 1, scale: 1, sx: (x) => this.sx(x), sy: (y) => this.sy(y), wx: (x) => this.wx(x) };
   private calls: { text: string; kind: CalloutKind; x: number; y: number; life: number; big: boolean }[] = [];
@@ -363,6 +373,7 @@ export class Renderer {
     for (const w of this.waves) w.life = 0;
     for (const c of this.calls) c.life = 0;
     this.barsTarget = 0;
+    this.perch.clear();
     this.surfer.reset();
   }
 
@@ -469,10 +480,13 @@ export class Renderer {
     const speedZoom = 1 / (1 + Math.max(0, f.speed - 1500) / 7000);
     const shot = 1 + 0.1 * this.diveK + 0.07 * this.bars - 0.1 * this.surgeK;
     const targetZoom = clamp((700 / (alt + 700)) * speedZoom, 0.34, 1);
-    this.zoom = lerp(this.zoom, clamp(this.base * 1.28, 0.6, 1.5) * targetZoom * shot, k);
+    // The title is a high, wide pan over the sea; pressing play swoops the camera down behind the surfer.
+    if (f.title) this.pan = f.reducedMotion ? this.pan : Math.min(2600, this.pan + f.dt * 170);
+    else this.pan += (0 - this.pan) * (1 - Math.exp(-f.dt * 2.2));
+    this.zoom = lerp(this.zoom, clamp(this.base * 1.28, 0.6, 1.5) * targetZoom * shot * (1 - 0.3 * f.intro), k);
     // Look ahead: the faster you go, the further left the spirit sits.
     const speedN = clamp((f.speed - 500) / 2000, 0, 1);
-    this.ax = ease(this.ax, 0.34 - 0.11 * speedN - 0.03 * this.surgeK, 2);
+    this.ax = ease(this.ax, 0.34 - 0.11 * speedN - 0.03 * this.surgeK + 0.16 * f.intro, 2);
     // Roll with the path, a lean kicked by impacts, and a slow drift while LOCKED IN.
     const path = Math.atan2(f.spirit.vy, f.spirit.vx);
     const rollTarget = f.reducedMotion ? 0 : clamp(path * 0.16 + this.tilt + Math.sin(f.time * 0.45) * 0.035 * this.bars, -0.08, 0.08);
@@ -481,10 +495,10 @@ export class Renderer {
     this.punch = Math.max(0, this.punch - f.dt * 0.35);
     this.scale = this.zoom * (1 + (f.reducedMotion ? 0 : this.punch));
     this.bars += (this.barsTarget - this.bars) * (1 - Math.exp(-f.dt * 5));
-    this.camX = px;
+    this.camX = px + this.pan;
     const depth = Math.max(0, ground - py);
     const lead = clamp(f.spirit.vy * 0.11, -150, 150);
-    const targetY = ground + Math.max(0, alt - 2200) * 0.85 - depth * 0.85 + lead;
+    const targetY = ground + Math.max(0, alt - 2200) * 0.85 - depth * 0.85 + lead + 240 * f.intro;
     this.camY = this.ready ? lerp(this.camY, targetY, 1 - Math.exp(-f.dt * 4)) : targetY;
     this.ready = true;
     this.fx.update(f.dt, f.time);
@@ -509,18 +523,21 @@ export class Renderer {
       ctx.translate(-w / 2, -h / 2);
     }
     this.sky(f, wt);
+    this.wind(f);
     this.view.ctx = ctx;
     this.view.w = w;
     this.view.h = h;
     this.view.scale = this.scale;
     // Landmarks stand between the far and middle ranges.
     this.mountains(wt, () => landmarks(this.view, this.camX, ground, f.time, mixPal(wt, (p) => p.skyBot, this.tmp), wt[MOON] + wt[AUR] * 0.9 + wt[TW] * 0.35));
+    this.midSea(f, wt);
     birds(this.view, f.time, wt[3] + wt[4] > 0.5);
     if (f.obsA > 0) observatory(this.view, f.obsX, f.obsY, f.time, f.obsA);
     this.bestMarker(f);
     this.ringsLayer(f);
     this.seaLayer(f, wt);
     this.underwater(f, wt);
+    this.rays(f);
     this.view.ctx = ctx;
     this.view.w = w;
     this.view.h = h;
@@ -529,6 +546,8 @@ export class Renderer {
     abyss(this.view, f.terrain, f.time);
     hazards(this.view, f.terrain, f.frame, f.hazardsLive);
     props(this.view, f.terrain, f.time);
+    life(this.view, f.terrain, px, py, f.time, wt[MOON] + wt[AUR] * 0.9 + wt[TW] * 0.35);
+    perched(this.view, f.terrain, this.perch, px, f.time, mixPal(wt, (p) => p.skyBot, this.tmp));
     this.traces(f);
     this.mist(f, wt);
     this.podA = ease(this.podA, f.streak >= 3 ? 1 : 0, f.streak >= 3 ? 1.2 : 0.6);
@@ -537,12 +556,14 @@ export class Renderer {
     this.ghostLayer(f);
     this.particlesLayer(f, wt);
     this.spiritLayer(f, px, py);
+    this.tideLayer(f);
     this.motes(f, wt);
     foreground(this.view, this.camX, f.time, mixPal(wt, (p) => p.skyBot, this.tmp));
     this.weatherLayer(f, wt);
     this.textLayer(f);
     ctx.restore();
     this.bannerLayer(f);
+    this.titleLayer(f);
 
     const paperish = wt[TW] + wt[PAPER];
     if (this.grain && paperish > 0.01) {
@@ -1138,6 +1159,18 @@ export class Renderer {
     ctx.fillRect(x - hr, y - hr, hr * 2, hr * 2);
     ctx.globalCompositeOperation = "source-over";
 
+    const slope = f.terrain.slope(px);
+    const alt2 = py - f.terrain.height(px);
+    const crouchT = s.grounded ? (f.holding ? 1 : slope < -0.15 ? 0.5 : 0) : 0;
+    const leanT = s.grounded ? clamp(slope * 1.6, -1, 1) : 0;
+    const armsT = !s.grounded && !s.under && Math.abs(s.vy) < 320 && alt2 > 100 ? 1 : 0;
+    const pk = 1 - Math.exp(-f.dt * 9);
+    this.poseCrouch += (crouchT - this.poseCrouch) * pk;
+    this.poseLean += (leanT - this.poseLean) * pk;
+    this.poseArms += (armsT - this.poseArms) * pk;
+    this.look.crouch = this.poseCrouch;
+    this.look.lean = this.poseLean;
+    this.look.arms = this.poseArms;
     this.look.scarf = f.scarf;
     this.look.surgeReady = f.surgeReady;
     this.look.surgeOn = f.surge;
@@ -1160,6 +1193,172 @@ export class Renderer {
       ctx.globalAlpha = 1;
       ctx.lineCap = "butt";
     }
+  }
+
+  /** A slower, darker sea rolling behind the playable wave, in two layers, so the ocean has depth. */
+  private midSea(f: FrameState, wt: number[]): void {
+    const { ctx, w, h } = this;
+    const T = f.terrain;
+    const col = mixPal(wt, (p) => p.m[2], this.tmp);
+    const rim = mixPal(wt, (p) => p.accent, this.tmp2);
+    const glowy = wt[MOON] + wt[AUR];
+    for (let j = 0; j < 2; j++) {
+      const par = j === 0 ? 0.3 : 0.55;
+      const base = h * (this.horizon - 0.1 + j * 0.035);
+      ctx.beginPath();
+      for (let x = -24; x <= w + 24; x += 24) {
+        const wxp = this.camX * par + (x - w * this.ax) / (this.scale * 0.6) + 4000 * j;
+        const y = base - (T.height(wxp) - this.camY * par) * this.scale * 0.22;
+        if (x === -24) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w + 24, h + 10);
+      ctx.lineTo(-24, h + 10);
+      ctx.closePath();
+      ctx.fillStyle = css(col, 0.5 + j * 0.12);
+      ctx.fill();
+      ctx.strokeStyle = css(rim, 0.14 + glowy * 0.2 + j * 0.06);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  /** Long, faint streaks of wind drifting across the sky. */
+  private wind(f: FrameState): void {
+    if (f.reducedMotion) return;
+    const { ctx, w, h } = this;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgb(255,255,255)";
+    ctx.lineWidth = 1.6;
+    const span = w + 520;
+    for (let i = 0; i < 5; i++) {
+      const xs = ((((i * 340 - f.time * (55 + i * 14) - this.camX * 0.04 * this.scale) % span) + span) % span) - 260;
+      const baseY = h * (0.1 + i * 0.075);
+      for (let k = 0; k < 14; k++) {
+        ctx.globalAlpha = Math.sin((Math.PI * (k + 0.5)) / 14) * 0.17;
+        ctx.beginPath();
+        ctx.moveTo(xs + k * 26, baseY + Math.sin(k * 0.55 + f.time * 0.8 + i) * 16);
+        ctx.lineTo(xs + (k + 1) * 26, baseY + Math.sin((k + 1) * 0.55 + f.time * 0.8 + i) * 16);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.lineCap = "butt";
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  /** Shafts of light slanting into the water, and foam caps on the steep faces of the waves. */
+  private rays(f: FrameState): void {
+    const { ctx, w, h } = this;
+    const T = f.terrain;
+    const strength = f.spirit.under ? 1 : 0.55;
+    ctx.globalCompositeOperation = "lighter";
+    const span = w + 300;
+    for (let i = 0; i < 6; i++) {
+      const sxp = ((((i * 213 + f.time * 16 * (0.7 + i * 0.1) - this.camX * 0.5 * this.scale) % span) + span) % span) - 150;
+      const y0 = this.sy(T.height(this.wx(sxp)));
+      if (y0 > h) continue;
+      const width = (22 + (i % 3) * 10) * this.scale;
+      const lean = 0.32 * (h - y0);
+      const g = ctx.createLinearGradient(sxp, y0, sxp + lean, h);
+      g.addColorStop(0, `rgba(190,238,255,${0.16 * strength * (0.6 + 0.4 * Math.sin(f.time * 0.8 + i))})`);
+      g.addColorStop(1, "rgba(190,238,255,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(sxp - width, y0);
+      ctx.lineTo(sxp + width, y0);
+      ctx.lineTo(sxp + lean + width * 3, h);
+      ctx.lineTo(sxp + lean - width * 3, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgb(240,250,255)";
+    for (let x = -10; x <= w + 10; x += 20) {
+      const wx = this.wx(x);
+      const a = Math.abs(T.slope(wx));
+      if (a < 0.5) continue;
+      ctx.globalAlpha = Math.min(0.7, (a - 0.5) * 1.6);
+      ctx.beginPath();
+      ctx.ellipse(x, this.sy(T.height(wx)) + 1, 6 * this.scale, 1.8 * this.scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** The tidal wave: a wall of dark water with a foaming, curling crest, closing in from the left. */
+  private tideLayer(f: FrameState): void {
+    const t = f.tide;
+    if (!t || t.a <= 0.01) return;
+    const { ctx, w, h } = this;
+    const edge = this.sx(t.x);
+    if (edge < 0) {
+      // Not on screen yet: the left side darkens and pulses as it nears.
+      const near = clamp(1 + edge / (w * 1.3), 0, 1);
+      if (near > 0.02) {
+        const g = ctx.createLinearGradient(0, 0, w * (0.25 + 0.25 * near), 0);
+        g.addColorStop(0, `rgba(2,12,28,${0.95 * near * t.a * (f.flashes && !f.reducedMotion ? 0.8 + 0.2 * Math.sin(f.time * 6) : 0.9)})`);
+        g.addColorStop(1, "rgba(4,18,36,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w * 0.5, h);
+      }
+      return;
+    }
+    const top = h * 0.1 + (1 - clamp(edge / (w * 0.8), 0, 1)) * h * 0.12;
+    const crest = (x: number) => top + 26 * Math.sin(x * 0.02 + f.time * 2.2) + Math.pow(clamp((x + 40) / (edge + 40), 0, 1), 3) * 100;
+    ctx.save();
+    ctx.globalAlpha = t.a;
+    const g = ctx.createLinearGradient(edge - w * 0.5, 0, edge, 0);
+    g.addColorStop(0, "rgba(4,14,30,0.98)");
+    g.addColorStop(1, "rgba(18,64,104,0.95)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-40, h + 40);
+    ctx.lineTo(-40, crest(-40));
+    for (let x = -40; x <= edge - 20; x += 24) ctx.lineTo(x, crest(x));
+    ctx.quadraticCurveTo(edge + 90, top + 60, edge + 50, top + 190);
+    ctx.lineTo(edge - 4, h + 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "rgba(220,242,255,0.5)";
+    for (let x = Math.max(-20, edge - w * 0.6); x <= edge; x += 22) {
+      ctx.beginPath();
+      ctx.arc(x, crest(x) + 2, 6 + 4 * Math.sin(x * 0.07 + f.time * 5), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** The title, floating in the sky: no panel, just the name, which dissolves as the run begins. */
+  private titleLayer(f: FrameState): void {
+    if (f.intro <= 0.01) return;
+    const { ctx, w, h } = this;
+    const a = f.intro;
+    const size = clamp(w * 0.075, 34, 92);
+    ctx.textAlign = "center";
+    ctx.globalAlpha = a;
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = "rgba(255,255,255,0.96)";
+    ctx.font = `600 ${size}px ui-serif, Georgia, serif`;
+    const spread = size * (0.28 + 0.5 * (1 - a));
+    ctx.letterSpacing = `${spread}px`;
+    const bob = Math.sin(f.time * 0.8) * 4;
+    ctx.fillText("TIDE-WEAVER", w / 2 + spread / 2, h * 0.3 - (1 - a) * 36 + bob);
+    ctx.shadowBlur = 12;
+    if (f.title) {
+      ctx.font = `500 ${size * 0.2}px ui-rounded, system-ui, sans-serif`;
+      ctx.letterSpacing = `${size * 0.12}px`;
+      ctx.globalAlpha = a * (0.6 + 0.3 * Math.sin(f.time * 2.4));
+      ctx.fillText("HOLD TO BEGIN", w / 2 + size * 0.06, h * 0.3 + size * 0.75 + bob);
+    }
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+    ctx.letterSpacing = "0px";
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "start";
   }
 
   /** Foam on carved crests and the fragments of rings, both fading slowly. */

@@ -6,7 +6,8 @@ import { Renderer, STYLES, STYLE_COUNT } from "./render";
 import { hashString, utcDay } from "./rng";
 import { makeRun, makeRunEvents, updateRun, TIERS, type Mode, type Run } from "./rules";
 import { AURAS, exportCode, importCode, Vault, type Aura, type KV, type SaveData, type Stats } from "./save";
-import { Terrain, ZONES, BIOMES, biomeAt } from "./terrain";
+import { Terrain, ZONES, BIOMES, biomeAt, lagoonAt } from "./terrain";
+import { TIDE_AT, tideState, tideX } from "./tide";
 import { LoFi } from "./lofi";
 import { Juice } from "./juice";
 import { BOARDS, SCARVES, boardOf, scarfOf } from "./gear";
@@ -120,6 +121,7 @@ ui.innerHTML = `
   <div class="trip" id="trip" aria-hidden="true"><i id="trip-fill"></i><span style="left:33.3%"></span><span style="left:66.6%"></span><b id="trip-name">Twilight Shallows</b></div>
   <p class="hint" id="hint" hidden></p>
   <button class="clipbtn" id="clip" hidden>Save clip <kbd>C</kbd></button>
+  <button class="surgebtn" id="surgebtn" aria-label="Surge" hidden>Surge</button>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <a class="tag" href="./" aria-label="coralctrl">a coralctrl game</a>
   <div class="scrim" id="scrim" hidden>
@@ -143,6 +145,10 @@ const toastEl = $("toast");
 const goalBar = $("goalbar");
 const ghostBar = $("ghostbar");
 const clipBtn = $("clip");
+const surgeBtn = $("surgebtn");
+const coarse = matchMedia("(pointer: coarse)").matches;
+let surgeShown = false;
+let surgeReadyShown = false;
 
 // ---------------------------------------------------------------- run state
 
@@ -185,6 +191,18 @@ let obsX = 0;
 let obsY = 0;
 let obsA = 0;
 let obsSeen = false;
+/** The title shows until the very first press. */
+let titleOn = true;
+let introK = 1;
+let titling = true;
+document.body.classList.add("titling");
+/** The tidal wave: the physics step it rose on (-1 before 3 km), and whether it has finished. */
+let tideStart = -1;
+let tideBase = TIDE_AT;
+let tideDone = false;
+let tideA = 0;
+const tideView = { x: 0, a: 0 };
+let inLagoon = false;
 /** Goals count things within one run. */
 let counters: Counters = emptyCounters();
 /** Everything needed to replay this run as someone else's ghost. */
@@ -209,7 +227,7 @@ const weights = new Array(STYLE_COUNT).fill(0);
 weights[0] = 1;
 
 // Contextual first-run tips: one short line at a time, never a wall of text.
-let tip = save.tutorialDone ? -1 : 0;
+let tip = save.tutorialDone || (import.meta.env.DEV && params.get("notips")) ? -1 : 0;
 let tipHold = 0;
 let tipTimer = 0;
 const TIPS = ["Hold on a downhill to dive", "Let go at the bottom to fly", "Land along a downhill for a Perfect", "Perfect dives and rings refill your light", "Hold in the air to backflip · let go to land flat"];
@@ -259,6 +277,17 @@ function newRun(retry = false): void {
   recValid = tip === -1;
   endFrame = -1;
   runSeed = seed;
+  tideStart = -1;
+  tideBase = TIDE_AT;
+  // Dev only: ?tgap=N places the tidal wave N units behind the spirit at once, to look at it.
+  if (import.meta.env.DEV && params.get("tgap")) {
+    tideStart = 0;
+    spirit.x = spirit.px = tideX(0) + Number(params.get("tgap"));
+    spirit.y = spirit.py = terrain.height(spirit.x) + 220;
+  }
+  tideDone = false;
+  tideA = 0;
+  inLagoon = false;
   replay = linkGhost && linkGhost.seed === seed ? new Replay(linkGhost, seed) : null;
   ghostFade = 1;
   if (replay && !ghostToasted) {
@@ -306,6 +335,8 @@ const keys = new Set<string>();
 const SURGE_KEYS = new Set(["ShiftLeft", "ShiftRight", "KeyX", "KeyE", "ArrowRight"]);
 const HOLD_KEYS = new Set(["Space", "ArrowDown", "KeyS", "KeyW", "ArrowUp", "Enter"]);
 const holding = () => !over && ending < 0 && (pointers.size > 0 || keys.size > 0);
+// Dev only: lets the browser tests ask whether the spirit is being held.
+if (import.meta.env.DEV) (window as unknown as { __tw: unknown }).__tw = { holding, pointers: () => pointers.size };
 
 function wake(): void {
   score.unlock();
@@ -394,6 +425,8 @@ function drawClip(): void {
   c.fillText(`${fmt(run.score)} flow`, 28, ch - 18);
 }
 
+const canSurge = (): boolean => spirit.surgeCd <= 0 && !spirit.under && (mode === "zen" || run.light >= 0.2);
+
 /** Second verb. Costs some light (not in Zen) and needs the cooldown to be over. */
 function surgeNow(): void {
   if (paused || over || ending >= 0 || respawn >= 0 || !started) return;
@@ -432,6 +465,8 @@ canvas.addEventListener("pointerdown", (e) => {
 const release = (e: PointerEvent) => {
   if (e.pointerType === "mouse" && e.button === 2) return;
   pointers.delete(e.pointerId);
+  // iOS only lets sound start from a finger lifting, not from one going down.
+  if (e.pointerType === "touch") wake();
 };
 window.addEventListener("pointerup", release);
 window.addEventListener("pointercancel", release);
@@ -440,6 +475,10 @@ window.addEventListener("blur", () => {
   keys.clear();
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+// Two fingers must never pinch-zoom the page: iOS ignores user-scalable, so stop the gesture itself.
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+document.addEventListener("gesturechange", (e) => e.preventDefault());
+canvas.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
 
 window.addEventListener("keydown", (e) => {
   const el = e.target as HTMLElement;
@@ -717,6 +756,7 @@ function openSettings(): void {
       <button data-act="motion" aria-pressed="${save.reducedMotion}">Calm motion ${save.reducedMotion ? "on" : "off"}</button>
       <button data-act="flashes" aria-pressed="${save.flashes}">Flashes ${save.flashes ? "on" : "off"}</button>
       <button data-act="particles" aria-pressed="${save.lightParticles}">Particles ${save.lightParticles ? "light" : "full"}</button>
+      <button data-act="sky">Sky: ${save.sky < 0 ? "changing" : STYLES[save.sky]}</button>
       <button data-act="tips">Show tips again</button>
     </div>
     <label class="slider">Screen shake <input type="range" id="shake" min="0" max="100" value="${Math.round(save.shake * 100)}"></label>
@@ -899,6 +939,11 @@ panel.addEventListener("click", async (e) => {
       persist();
       openSettings();
       break;
+    case "sky":
+      save.sky = save.sky >= STYLE_COUNT - 1 ? -1 : save.sky + 1;
+      persist();
+      openSettings();
+      break;
     case "flashes":
       save.flashes = !save.flashes;
       persist();
@@ -974,6 +1019,18 @@ function toggleSound(): void {
 
 $("b-sound").addEventListener("click", toggleSound);
 clipBtn.addEventListener("click", () => void saveClip());
+// On a touch screen the Surge is also a button, so one thumb is enough.
+surgeBtn.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (pointers.size > 0) surgeNow();
+  else {
+    // No finger is diving yet: this press is a dive, like a press anywhere else.
+    wake();
+    started = true;
+    pointers.add(e.pointerId);
+  }
+});
 $("b-aura").addEventListener("click", () => openAuras());
 $("b-pause").addEventListener("click", () => (over ? openGameOver() : openPause()));
 $("b-daily").addEventListener("click", () => {
@@ -1021,6 +1078,11 @@ function revealObservatory(): void {
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 function updateWeights(): number {
+  if (save.sky >= 0) {
+    weights.fill(0);
+    weights[save.sky] = 1;
+    return save.sky;
+  }
   const c = Math.floor(clock / CYCLE) % STYLE_COUNT;
   const local = clock % CYCLE;
   weights.fill(0);
@@ -1068,10 +1130,46 @@ function goalHtml(): string {
 }
 
 function ghostText(): string {
+  if (tideStart >= 0 && !tideDone) {
+    const m = Math.max(0, Math.round((spirit.x - tideX(spirit.frames - tideStart, tideBase)) / 10));
+    return `The wave is ${m} m behind`;
+  }
   if (!replay || !linkGhost) return "";
   if (replay.done) return `Ghost faded at ${(replay.spirit.distance / 10000).toFixed(2)} km`;
   const m = Math.round((spirit.x - replay.spirit.x) / 10);
   return `Ghost ${fmt(linkGhost.score)} · you ${m >= 0 ? "+" : "−"}${Math.abs(m)} m`;
+}
+
+/** The set-piece at 3 km: a wall of water rises behind you. Outrun it or the light goes out. */
+function tideStep(): void {
+  if (mode === "zen" || !hazardsOn() || run.ended) return;
+  if (tideStart < 0) {
+    if (spirit.x >= TIDE_AT) {
+      tideStart = spirit.frames;
+      // Anchored to where you are, so a late start (tips just finished) still gives a full chase.
+      tideBase = spirit.x;
+      tideDone = false;
+      renderer.showBanner("The tidal wave");
+      score.thud(1);
+      renderer.kick(0.6);
+    }
+    return;
+  }
+  if (tideDone) return;
+  const st = tideState(spirit.x, spirit.frames - tideStart, tideBase);
+  if (st === "caught") {
+    tideDone = true;
+    run.light = 0;
+    run.ended = true;
+    run.cause = "The tidal wave caught you. Dive to keep your speed.";
+    rev.ended = true;
+  } else if (st === "escaped") {
+    tideDone = true;
+    save.bank += 5;
+    renderer.showBanner("You outran the wave · +5 gems");
+    score.motif(0, true);
+    persist();
+  }
 }
 
 function tick(dt: number): void {
@@ -1092,6 +1190,7 @@ function tick(dt: number): void {
   if (replay) replay.advance(spirit.frames);
   const dx = spirit.x - before;
   updateRun(run, spirit, ev, dx, dt, rev);
+  tideStep();
   clock += dt;
   renderer.pushTrail(spirit.x, spirit.y);
   save.stats.distance += dx;
@@ -1146,6 +1245,11 @@ function tick(dt: number): void {
     }
   }
   if (spirit.grounded && sp > 500 && spirit.frames % 4 === 0) renderer.foam(spirit.x, 8 + sp / 130);
+  // Skimming just above the water without touching it pulls up a wake of droplets and ripples.
+  if (!spirit.grounded && !spirit.under && alt > 0 && alt < 55 && sp > 650 && spirit.frames % 2 === 0) {
+    renderer.fx.spawn(spirit.x, ground + 4, -sp * 0.15 + Math.random() * 60, 90 + Math.random() * 130, 0.5, 1.5, [215, 240, 255], 0);
+    renderer.foam(spirit.x, 14);
+  }
   if (!spirit.under && alt > 700 && spirit.frames % 150 === 0) score.chime(12 + (Math.floor(spirit.frames / 150) % 3), 0.3);
 
   if (ev.takeoff) score.note(2 + Math.min(4, currentSpeed(spirit) / 500), zone, 0.3);
@@ -1216,6 +1320,11 @@ function tick(dt: number): void {
   } else if (ev.landing === "rough") {
     chain.length = 0;
     chainPts = 0;
+  }
+  const lag = lagoonAt(spirit.x);
+  if (lag !== inLagoon) {
+    inLagoon = lag;
+    if (lag) renderer.showBanner("The lagoon · a breather");
   }
   const biome = biomeAt(spirit.x);
   if (biome !== lastBiome) {
@@ -1407,6 +1516,17 @@ function frame(now: number): void {
   const speed = currentSpeed(spirit);
   const gAlt = spirit.y - terrain.height(spirit.x);
   score.update(paused ? 0 : speed, style, weights[4], !spirit.grounded, spirit.under ? 0 : Math.min(1, Math.max(0, gAlt) / 2200), spirit.under ? Math.min(1, Math.max(0, -gAlt) / 420) : 0);
+  if (started && titleOn) titleOn = false;
+  introK += ((titleOn && !started ? 1 : 0) - introK) * (1 - Math.exp(-dt * (titleOn && !started ? 4 : 2.4)));
+  if (titling !== introK > 0.05) {
+    titling = introK > 0.05;
+    document.body.classList.toggle("titling", titling);
+  }
+  if (tideStart >= 0) {
+    tideView.x = tideX(spirit.frames - tideStart, tideBase);
+    tideA = tideDone && !run.ended ? Math.max(0, tideA - dt * 0.5) : Math.min(1, tideA + dt * 2);
+    tideView.a = tideA;
+  }
   if (replay?.done) ghostFade = Math.max(0, ghostFade - dt * 0.5);
   if (replay && ghostFade > 0) {
     const gs = replay.spirit;
@@ -1452,8 +1572,11 @@ function frame(now: number): void {
     surge: spirit.surge / SURGE_TIME,
     streak: spirit.combo,
     scarf: scarfLen,
-    surgeReady: started && spirit.surgeCd <= 0 && !spirit.under && (mode === "zen" || run.light >= 0.2),
+    surgeReady: started && canSurge(),
     ghost: replay && ghostFade > 0 ? ghostView : null,
+    title: titleOn && !started,
+    intro: introK,
+    tide: tideStart >= 0 && tideA > 0.01 ? tideView : null,
   });
   if (clips.active) drawClip();
   if (hudFrame++ % 6 === 0) {
@@ -1467,6 +1590,16 @@ function frame(now: number): void {
       goalBar.dataset.s = gh;
       goalBar.innerHTML = gh;
     }
+  }
+  const showSurge = coarse && started && !over && !paused;
+  if (showSurge !== surgeShown) {
+    surgeShown = showSurge;
+    surgeBtn.hidden = !showSurge;
+  }
+  const ready = canSurge();
+  if (ready !== surgeReadyShown) {
+    surgeReadyShown = ready;
+    surgeBtn.classList.toggle("ready", ready);
   }
   const showClip = clips.active && performance.now() < clipUntil;
   if (clipBtn.hidden === showClip) clipBtn.hidden = !showClip;
@@ -1498,7 +1631,7 @@ function frame(now: number): void {
     lightEl.setAttribute("aria-valuenow", String(Math.round(run.light * 100)));
   }
   const nudge = started && idle > 5 && save.stats.runs < 8 && !over && ending < 0;
-  const tipText = !started ? "Hold anywhere to dive · let go to fly" : tip >= 0 && tip < TIPS.length ? TIPS[tip] : nudge ? "Hold to dive down the next slope" : "";
+  const tipText = !started ? (titleOn ? "" : "Hold anywhere to dive · let go to fly") : tip >= 0 && tip < TIPS.length ? TIPS[tip] : nudge ? "Hold to dive down the next slope" : "";
   hintEl.classList.toggle("start", !started);
   if (hintEl.textContent !== tipText) hintEl.textContent = tipText;
   hintEl.hidden = !tipText || paused;

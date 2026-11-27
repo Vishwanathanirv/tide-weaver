@@ -12,13 +12,13 @@ export const TIDE_SPEED = 560;
 export const TIDE_ESCAPE_GAP = 3200;
 export const TIDE_MAX_STEPS = 45 * 60;
 
-/** Where the wall is, `steps` physics steps after it rose. */
-export const tideX = (steps: number): number => TIDE_AT - TIDE_GAP + (steps * TIDE_SPEED) / 60;
+/** Where the wall is, `steps` physics steps after it rose. `base` is where you were when it rose. */
+export const tideX = (steps: number, base: number = TIDE_AT): number => base - TIDE_GAP + (steps * TIDE_SPEED) / 60;
 
 export type TideState = "chasing" | "caught" | "escaped";
 
-export function tideState(spiritX: number, steps: number): TideState {
-  const gap = spiritX - tideX(steps);
+export function tideState(spiritX: number, steps: number, base: number = TIDE_AT): TideState {
+  const gap = spiritX - tideX(steps, base);
   if (gap <= 0) return "caught";
   if (gap > TIDE_ESCAPE_GAP || steps > TIDE_MAX_STEPS) return "escaped";
   return "chasing";

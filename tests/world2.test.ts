@@ -23,6 +23,13 @@ describe("tidal wave", () => {
     expect(slowEnd).toBe("caught");
   });
 
+  it("is anchored to where you were when it rose, so a late start still gives a full chase", () => {
+    const base = 41000;
+    expect(tideX(0, base)).toBe(base - TIDE_GAP);
+    expect(tideState(base, 0, base)).toBe("chasing");
+    expect(tideState(base, 1, base)).toBe("chasing");
+  });
+
   it("lets go after the time limit even if you stay just ahead", () => {
     const steps = TIDE_MAX_STEPS + 1;
     expect(tideState(tideX(steps) + TIDE_ESCAPE_GAP - 1, steps)).toBe("escaped");
