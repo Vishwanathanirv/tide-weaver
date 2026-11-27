@@ -935,6 +935,24 @@ export class Renderer {
     ctx.ellipse(0, 0, size * 1.15, size * 0.85, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+    // Diving: chevrons under the spirit show that your press is pulling it down.
+    if (f.holding) {
+      const pulse = 0.55 + 0.45 * Math.sin(f.time * 14);
+      ctx.strokeStyle = `rgba(255,255,255,${0.95 * pulse})`;
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      for (let i = 0; i < 2; i++) {
+        const cy = y + size * (2.2 + i * 1.5);
+        ctx.globalAlpha = 1 - i * 0.4;
+        ctx.beginPath();
+        ctx.moveTo(x - size * 1.2, cy);
+        ctx.lineTo(x, cy + size * 0.9);
+        ctx.lineTo(x + size * 1.2, cy);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.lineCap = "butt";
+    }
   }
 
   private weatherLayer(f: FrameState, wt: number[]): void {

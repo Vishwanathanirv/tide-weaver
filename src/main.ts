@@ -138,6 +138,9 @@ let lastZone = -1;
 let lastStyle = -1;
 let passedBest = false;
 let wasHolding = false;
+/** Nothing moves until the first press, so the player sees that the dive is theirs. */
+let started = false;
+let idle = 0;
 let peakTier = 0;
 const weights = new Array(STYLE_COUNT).fill(0);
 weights[0] = 1;
@@ -166,6 +169,8 @@ function newRun(): void {
   lastStyle = -1;
   passedBest = false;
   peakTier = 0;
+  started = false;
+  idle = 0;
   score.song.length = 0;
   renderer.resetTrail();
   lightEl.hidden = mode === "zen";
@@ -196,6 +201,7 @@ function wake(): void {
 canvas.addEventListener("pointerdown", (e) => {
   if (paused) return;
   wake();
+  started = true;
   pointers.add(e.pointerId);
   canvas.setPointerCapture?.(e.pointerId);
   e.preventDefault();
@@ -215,12 +221,17 @@ window.addEventListener("keydown", (e) => {
   // Game over: Space or Enter rides again straight away.
   if (over && !scrim.hidden && (e.code === "Space" || e.code === "Enter")) {
     e.preventDefault();
-    if (!e.repeat && performance.now() - endShownAt > 500) rideAgain();
+    if (!e.repeat && performance.now() - endShownAt > 500) {
+      rideAgain();
+      started = true;
+      keys.add(e.code);
+    }
     return;
   }
   if (HOLD_KEYS.has(e.code) && !paused) {
     if (el.closest("button") && (e.code === "Space" || e.code === "Enter")) return;
     wake();
+    started = true;
     keys.add(e.code);
     e.preventDefault();
     return;
@@ -798,7 +809,17 @@ function frame(now: number): void {
         openGameOver();
       }
     }
-    acc += dt * scaleT;
+    if (!started) {
+      // Waiting for the first press: the spirit hovers and breathes.
+      const y0 = terrain.height(0) + 220 + Math.sin(now / 420) * 14;
+      spirit.py = spirit.y;
+      spirit.y = y0;
+      acc = 0;
+      clock += dt;
+    }
+    if (started && !holding()) idle += dt;
+    else idle = 0;
+    acc += started ? dt * scaleT : 0;
     while (acc >= STEP && !paused) {
       tick(STEP);
       acc -= STEP;
@@ -858,7 +879,9 @@ function frame(now: number): void {
     lightEl.classList.toggle("low", run.light < 0.25);
     lightEl.setAttribute("aria-valuenow", String(Math.round(run.light * 100)));
   }
-  const tipText = tip >= 0 && tip < TIPS.length ? TIPS[tip] : "";
+  const nudge = started && idle > 5 && save.stats.runs < 8 && !over && ending < 0;
+  const tipText = !started ? "Hold anywhere to dive · let go to fly" : tip >= 0 && tip < TIPS.length ? TIPS[tip] : nudge ? "Hold to dive down the next slope" : "";
+  hintEl.classList.toggle("start", !started);
   if (hintEl.textContent !== tipText) hintEl.textContent = tipText;
   hintEl.hidden = !tipText || paused;
   requestAnimationFrame(frame);

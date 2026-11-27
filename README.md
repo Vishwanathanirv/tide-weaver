@@ -6,7 +6,8 @@ A coralctrl game. Free, in the browser, no sign-up.
 
 ## Play
 
-- **Hold** (Space, click or touch) to dive. Let go to fly.
+- **Press to start.** The spirit glides forward on its own; your only control is when to press.
+- **Hold** (Space, click or touch) to dive down a slope and gain speed. Let go at the bottom to fly off the next crest.
 - **Perfect dive:** land along a downslope. It builds your streak and speeds you up.
 - **Your light** fades as you ride. Perfect dives and rings refill it. When it goes out, the run ends and tells you why.
 - **Flow tiers:** ride without a rough landing to climb from Calm to Flowing, Radiant and Transcendent. Each tier raises the multiplier and brightens your trail.
