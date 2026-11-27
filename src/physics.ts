@@ -81,11 +81,33 @@ export interface Spirit {
   distance: number;
   /** Physics steps since the run started; hazards and collapses are timed against it. */
   frames: number;
+  /** Seconds of Surge left (speed burst with a ring magnet), and seconds until the next one. */
+  surge: number;
+  surgeCd: number;
+}
+
+export const SURGE_TIME = 1.2;
+export const SURGE_COOLDOWN = 4.5;
+const SURGE_BOOST = 420;
+/** While surging, rings are caught from this many times further away. */
+const SURGE_MAGNET = 1.9;
+
+/** Second verb: a burst of speed and a ring magnet. Not underwater, and only once the cooldown is over. */
+export function surge(s: Spirit): boolean {
+  if (s.under || s.surgeCd > 0) return false;
+  if (s.grounded) s.speed = Math.min(MAX_SPEED, s.speed + SURGE_BOOST * 0.75);
+  else {
+    s.vx = Math.min(MAX_SPEED, s.vx + SURGE_BOOST);
+    s.vy += 140;
+  }
+  s.surge = SURGE_TIME;
+  s.surgeCd = SURGE_COOLDOWN;
+  return true;
 }
 
 export function makeSpirit(terrain: Terrain): Spirit {
   const y = terrain.height(0) + 220;
-  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0 };
+  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0 };
 }
 
 export function makeEvents(): StepEvents {
@@ -263,6 +285,8 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
   ev.split = false;
   ev.thread = false;
   s.frames++;
+  s.surge = Math.max(0, s.surge - dt);
+  s.surgeCd = Math.max(0, s.surgeCd - dt);
   t.frame = s.frames;
   t.trigger(s.x);
   s.px = s.x;
@@ -296,13 +320,14 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
         hy = a < b ? r.y + off : r.y - off;
       } else d2 = ringDist2(s, r.x, r.y, dx, dy, len2);
       if (d2 < r.closest) r.closest = d2;
-      if (d2 < rr * rr) {
+      const reach = s.surge > 0 ? rr * SURGE_MAGNET : rr;
+      if (d2 < reach * reach) {
         r.taken = true;
         s.ringsTaken++;
         ev.ring++;
         ev.ringX = r.x;
         ev.ringY = hy;
-        ev.ringCenter = 1 - Math.sqrt(d2) / rr;
+        ev.ringCenter = Math.max(0, 1 - Math.sqrt(d2) / rr);
         ev.thread = r.splitAt >= 0;
         s.flow += 250;
         if (s.grounded) s.speed = Math.min(MAX_SPEED, s.speed + 160);

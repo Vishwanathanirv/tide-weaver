@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import "./style.css";
 import { Score, INSTRUMENTS } from "./audio";
-import { currentSpeed, makeEvents, makeSpirit, step, STEP, type Spirit } from "./physics";
+import { currentSpeed, makeEvents, makeSpirit, step, STEP, SURGE_TIME, surge, type Spirit } from "./physics";
 import { Renderer, STYLES, STYLE_COUNT } from "./render";
 import { hashString, utcDay } from "./rng";
 import { makeRun, makeRunEvents, updateRun, TIERS, type Mode, type Run } from "./rules";
@@ -54,6 +54,7 @@ const ACHIEVEMENTS: { id: string; name: string; need: string; test: (c: Ctx) => 
   { id: "skies", name: "Five skies", need: "See all five skies in one run", test: (c) => c.clock >= CYCLE * (STYLE_COUNT - 1) + BLEND },
   { id: "daily", name: "Same wave as everyone", need: "Ride today's wave for a minute", test: (c) => c.run.mode === "daily" && c.run.time >= 60 },
   { id: "zen", name: "Still water", need: "Ten minutes in Zen", test: (c) => c.run.mode === "zen" && c.run.time >= 600 },
+  { id: "surge", name: "Burst", need: "Use a Surge", test: () => save.stats.surges > 0 },
   { id: "observatory", name: "Starlight Observatory", need: "Found above the rain", test: () => false, secret: true },
 ];
 
@@ -179,6 +180,7 @@ let tip = save.tutorialDone ? -1 : 0;
 let tipHold = 0;
 let tipTimer = 0;
 const TIPS = ["Hold on a downhill to dive", "Let go at the bottom to fly", "Land along a downhill for a Perfect", "Perfect dives and rings refill your light", "Hold in the air to backflip · let go to land flat"];
+let surgeHinted = false;
 const hazardsOn = () => mode !== "zen" && tip === -1 && ending < 0;
 
 function addTrick(name: string, pts: number): void {
@@ -212,6 +214,8 @@ function newRun(retry = false): void {
     spirit.x = spirit.px = Number(params.get("km")) * 10000;
     spirit.y = spirit.py = terrain.height(spirit.x) + 220;
   }
+  // Dev only: ?streak=N starts with that streak, to look at the dolphins.
+  if (import.meta.env.DEV && params.get("streak")) spirit.combo = Number(params.get("streak"));
   run = makeRun(mode, tip !== -1);
   clock = 0;
   over = false;
@@ -248,6 +252,7 @@ function persist(): void {
 
 const pointers = new Set<number>();
 const keys = new Set<string>();
+const SURGE_KEYS = new Set(["ShiftLeft", "ShiftRight", "KeyX", "KeyE", "ArrowRight"]);
 const HOLD_KEYS = new Set(["Space", "ArrowDown", "KeyS", "KeyW", "ArrowUp", "Enter"]);
 const holding = () => !over && ending < 0 && (pointers.size > 0 || keys.size > 0);
 
@@ -257,15 +262,43 @@ function wake(): void {
   score.setVolumes(save.musicVolume, save.notesVolume);
 }
 
+/** Second verb. Costs some light (not in Zen) and needs the cooldown to be over. */
+function surgeNow(): void {
+  if (paused || over || ending >= 0 || respawn >= 0 || !started) return;
+  if (mode !== "zen" && run.light < 0.2) {
+    toast("Not enough light to surge");
+    return;
+  }
+  if (!surge(spirit)) return;
+  if (mode !== "zen") run.light = Math.max(0, run.light - 0.12);
+  save.stats.surges++;
+  score.surge();
+  renderer.kick(0.3);
+  renderer.punchIn(0.06);
+  renderer.pulse(spirit.x, terrain.height(spirit.x), 0.8);
+  renderer.fx.burst(spirit.x, spirit.y, 36, 520, [190, 230, 255], 0, 0.8);
+  renderer.callout("SURGE", "lock", spirit.x, spirit.y + 60, false);
+  persist();
+}
+
 canvas.addEventListener("pointerdown", (e) => {
   if (paused) return;
   wake();
+  // Right-click, or a second finger while one is already down: Surge.
+  if (e.button === 2 || (e.pointerType === "touch" && pointers.size > 0)) {
+    surgeNow();
+    e.preventDefault();
+    return;
+  }
   started = true;
   pointers.add(e.pointerId);
   canvas.setPointerCapture?.(e.pointerId);
   e.preventDefault();
 });
-const release = (e: PointerEvent) => pointers.delete(e.pointerId);
+const release = (e: PointerEvent) => {
+  if (e.pointerType === "mouse" && e.button === 2) return;
+  pointers.delete(e.pointerId);
+};
 window.addEventListener("pointerup", release);
 window.addEventListener("pointercancel", release);
 window.addEventListener("blur", () => {
@@ -301,6 +334,9 @@ window.addEventListener("keydown", (e) => {
     if (over) return;
     if (paused) resume();
     else openPause();
+  } else if (SURGE_KEYS.has(e.code)) {
+    e.preventDefault();
+    surgeNow();
   } else if (e.code === "KeyM") toggleSound();
   else if (e.code === "KeyR") document.body.classList.toggle("clean");
 });
@@ -496,7 +532,7 @@ function openSettings(): void {
       <button data-act="export">Copy my save code</button>
       <button data-act="import">Load pasted code</button>
     </div>
-    <p class="small">Hold Space or touch to dive · P pause · M sound · R hide the interface for clean recordings</p>
+    <p class="small">Hold Space or touch to dive · Shift, right-click or a second finger to surge · P pause · M sound · R hide the interface for clean recordings</p>
     <div class="row"><button class="primary" data-act="back" data-autofocus>Back</button></div>
   `);
   const music = panel.querySelector<HTMLInputElement>("#vol-music")!;
@@ -801,6 +837,7 @@ function tick(dt: number): void {
     renderer.pulse(spirit.x, ground, 0.55 + Math.min(0.6, spirit.combo * 0.08));
     renderer.popup(spirit.combo > 1 ? `Perfect ×${spirit.combo}` : "Perfect", spirit.x, spirit.y);
     renderer.kick(0.2 + Math.min(0.2, spirit.combo * 0.02));
+    renderer.swing((spirit.combo % 2 ? 1 : -1) * 0.025);
     renderer.punchIn(0.025 + Math.min(0.03, spirit.combo * 0.005));
     unlockAuras();
   } else if (ev.landing === "good") {
@@ -837,6 +874,7 @@ function tick(dt: number): void {
     score.note(11, 1, 0.9);
     score.note(14, 1, 0.7, 1);
     renderer.fx.burst(spirit.x, ground, 40, 520, [200, 240, 255], 0, 1);
+    renderer.swing(-0.04);
     renderer.pulse(spirit.x, ground, 1);
     renderer.punchIn(0.06);
   }
@@ -862,6 +900,7 @@ function tick(dt: number): void {
     renderer.shatter(spirit.x, spirit.y, [255, 210, 160]);
     score.splash();
     renderer.callout("skill issue", "skill", spirit.x, spirit.y, true);
+    renderer.swing(0.07);
     recordBest();
     const why = ev.crash === "spike" ? "on a crystal spike" : ev.crash === "gate" ? "into a tide gate" : "landing upside down";
     toast(`Shattered ${why} · ${(spirit.distance / 10000).toFixed(2)} km`);
@@ -891,6 +930,15 @@ function tick(dt: number): void {
     passedBest = true;
     renderer.popup("Past your best", spirit.x, spirit.y + 40, true);
     score.motif(zone, true);
+  }
+  // Spray off the board when it is fast, and a bright wake while surging.
+  if (spirit.grounded && spirit.speed > 700 && spirit.frames % 2 === 0) {
+    renderer.fx.spawn(spirit.x, ground + 6, -spirit.speed * 0.22 + Math.random() * 90, 70 + Math.random() * 190, 0.55, 1.6, [215, 240, 255], 0);
+  }
+  if (spirit.surge > 0) renderer.fx.burst(spirit.x, spirit.y, 2, 280, [190, 230, 255], 0, 0.5);
+  if (!surgeHinted && tip === -1 && !spirit.grounded && alt > 240 && run.time > 15 && save.stats.surges === 0) {
+    surgeHinted = true;
+    toast("Surge: Shift, right-click or a second finger");
   }
   if (!obsSeen && alt > OBS_ALT && weights[4] > 0.6 && !spirit.under) revealObservatory();
   if (alt > save.stats.maxAltitude) {
@@ -1056,6 +1104,8 @@ function frame(now: number): void {
     obsX,
     obsY,
     obsA,
+    surge: spirit.surge / SURGE_TIME,
+    streak: spirit.combo,
   });
   tripFill.style.transform = `scaleX(${Math.min(1, spirit.distance / 30000)})`;
   const bn = BIOMES[biomeAt(spirit.x)];

@@ -13,12 +13,14 @@ A coralctrl game. Free, in the browser, no sign-up.
 - **Press to start.** The spirit glides forward on its own; your only control is when to press.
 - **Hold** (Space, click or touch) to dive down a slope and gain speed. Let go at the bottom to fly off the next crest.
 - **Perfect dive:** land along a downslope. It builds your streak and speeds you up.
+- **Surge:** a burst of speed and a ring magnet for a little over a second, for 12% of your light. It recharges in 4.5 s, works on the ground and in the air, and is free in Zen.
 - **Your light** fades as you ride. Perfect dives and rings refill it. When it goes out, the run ends and tells you why.
 - **Flow tiers:** ride without a rough landing to climb from Calm to Flowing, Radiant and Transcendent. Each tier raises the multiplier and brightens your trail.
 
 | Key | Action |
 | --- | --- |
 | Space, click, touch | Dive |
+| Shift, X, right-click, second finger | Surge |
 | Space on the summary | Ride again |
 | P or Esc | Pause |
 | M | Sound |
@@ -49,6 +51,8 @@ Zen mode keeps every biome but nothing can hurt you.
 ## What changes as you play
 
 - **Five skies, one per minute:** watercolour twilight, a moonlit sea, aurora, paper-cut dawn and ink-wash rain, crossfading as real changes of paint.
+- **A camera with moods:** it sits close, leads where you are going, rolls with the slope, pushes in on dives, leans on impacts and drifts slowly while LOCKED IN.
+- **Dolphins:** keep a streak of three perfect dives and a pod leaps alongside you.
 - **A living sea:** ripples on the surface, moon and sun reflections, glowing plankton below, fireflies above and the odd shooting star.
 - **Four shores, four instruments:** Harp Shallows, Glass Reef, Reed Marsh and Deep Strings each play your melody differently.
 - **Six auras** and **13 milestones** unlock through play.

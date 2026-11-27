@@ -6,7 +6,7 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - `npm run dev` · `npm test` · `npm run build` (runs `tsc --noEmit` first)
 
 ## Layout
-- `src/physics.ts` fixed-step spirit physics (60 Hz, 2 sub-steps), landing grades, rings
+- `src/physics.ts` fixed-step spirit physics (60 Hz, 2 sub-steps), landing grades, rings, Surge (speed burst, ring magnet, cooldown)
 - `src/rules.ts` light, flow tiers, multiplier, kilometres, run end and its cause
 - `src/terrain.ts` analytic seeded hills, biomes, per-chunk rings, gems, jets, trick rings, collapsing crests, spikes and gates (all seeded, timed by physics frame)
 - `src/render.ts` five skies blended by weight, particle pool, trail, camera
@@ -26,4 +26,5 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - Journey and daily runs end only when the light fades, and the summary always says why. Zen never ends.
 - No external requests at runtime. The CSP in `vercel.json` allows `'self'` only.
 - The secret aura is awarded only by the observatory reveal (`revealObservatory` in `main.ts`); keep it out of the auras and milestones lists until found.
+- Camera feel (zoom, look-ahead, roll, shots) lives in `Renderer.draw`; roll is clamped to 0.08 rad and the world is scaled so corners never show. Roll is off in calm motion. The banner is drawn outside the roll.
 - Game balance numbers live at the top of `physics.ts`. Tune them after playing.

@@ -409,6 +409,14 @@ export class Score {
     if (swell) this.play(0, 3, 0.7, base);
   }
 
+  /** A Surge: air tearing past and a rising bell, so the burst is felt as well as seen. */
+  surge(): void {
+    this.whoosh(1.4);
+    this.note(7, 1, 0.8);
+    this.note(10, 1, 0.7, 1);
+    this.note(14, 1, 0.6, 2);
+  }
+
   /** The light going out: a short falling phrase. */
   fade(): void {
     this.note(9, 0, 0.6);

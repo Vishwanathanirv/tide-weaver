@@ -354,3 +354,94 @@ export function observatory(v: View, x: number, y: number, time: number, a: numb
   }
   ctx.restore();
 }
+
+/** Hash for per-dolphin variety, stable across frames. */
+const dh = (n: number) => {
+  const x = Math.sin(n * 91.7 + 13.3) * 24634.6345;
+  return x - Math.floor(x);
+};
+
+/**
+ * A pod of dolphins that races alongside while you hold a streak of perfect dives, leaping from
+ * the surface in arcs and splashing back in. Silhouettes with a rim of light; `a` fades the pod.
+ */
+export function pod(v: View, t: Terrain, spiritX: number, time: number, a: number): void {
+  const { ctx } = v;
+  for (let i = 0; i < 3; i++) {
+    const period = 1.9 + i * 0.43;
+    const cycle = time / period + i * 0.37;
+    const n = Math.floor(cycle);
+    const ph = cycle - n;
+    const air = 0.62;
+    // They swim a little ahead of you, drifting about so the pod never looks locked to the spirit.
+    const lane = 330 + i * 230 + Math.sin(time * 0.6 + i * 2.1) * 70 + (dh(n * 3 + i) - 0.5) * 120;
+    const x = spiritX + lane;
+    const surface = t.height(x);
+    const sx = v.sx(x);
+    if (sx < -200 || sx > v.w + 200) continue;
+    if (ph > air) continue;
+    const u = ph / air;
+    const peak = 150 + dh(n + i * 7) * 110;
+    const rise = peak * 4 * u * (1 - u);
+    const slope = (peak * 4 * (1 - 2 * u)) / 520;
+    const ang = Math.atan(slope);
+    const y = v.sy(surface + rise - 24);
+    const s = v.scale * (0.9 + i * 0.07);
+    const fade = a * Math.min(1, u * 8, (1 - u) * 8);
+
+    // Splash rings where it leaves and re-enters the water.
+    const edge = Math.min(u, 1 - u);
+    if (edge < 0.2) {
+      const k = edge / 0.2;
+      ctx.strokeStyle = `rgba(210,240,255,${a * (1 - k) * 0.7})`;
+      ctx.lineWidth = Math.max(1, 2 * s);
+      ctx.beginPath();
+      ctx.ellipse(sx, v.sy(surface) + 2, (26 + k * 46) * s, (5 + k * 8) * s, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.save();
+    ctx.translate(sx, y);
+    ctx.rotate(-ang);
+    ctx.globalAlpha = fade;
+    ctx.scale(s, s);
+    ctx.beginPath();
+    ctx.moveTo(52, 2); // beak
+    ctx.quadraticCurveTo(40, -3, 30, -12);
+    ctx.quadraticCurveTo(6, -22, -22, -14); // back
+    ctx.quadraticCurveTo(-44, -8, -58, -2); // tail stock
+    ctx.lineTo(-76, -16); // fluke
+    ctx.quadraticCurveTo(-68, -3, -66, 1);
+    ctx.quadraticCurveTo(-68, 5, -76, 16);
+    ctx.lineTo(-58, 3);
+    ctx.quadraticCurveTo(-30, 14, 0, 16); // belly
+    ctx.quadraticCurveTo(28, 14, 42, 6);
+    ctx.closePath();
+    ctx.fillStyle = "#2a6f93";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(215,248,255,0.95)";
+    ctx.stroke();
+    // Dorsal and pectoral fins.
+    ctx.fillStyle = "#347fa6";
+    ctx.beginPath();
+    ctx.moveTo(-4, -19);
+    ctx.lineTo(-20, -36);
+    ctx.lineTo(-26, -13);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(14, 10);
+    ctx.lineTo(0, 28);
+    ctx.lineTo(-4, 11);
+    ctx.closePath();
+    ctx.fill();
+    // Eye.
+    ctx.fillStyle = "rgba(220,245,255,0.9)";
+    ctx.beginPath();
+    ctx.arc(32, -3, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}

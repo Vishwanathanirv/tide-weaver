@@ -13,6 +13,7 @@ export interface Stats {
   bestStreak: number;
   maxAltitude: number;
   runs: number;
+  surges: number;
 }
 
 export interface SaveData {
@@ -49,7 +50,7 @@ const SLOT_B = "tide-weaver.save.b";
 export function defaults(): SaveData {
   return {
     version: 1,
-    stats: { distance: 0, perfects: 0, rings: 0, bestStreak: 0, maxAltitude: 0, runs: 0 },
+    stats: { distance: 0, perfects: 0, rings: 0, bestStreak: 0, maxAltitude: 0, runs: 0, surges: 0 },
     aura: "ember",
     unlocked: ["ember"],
     muted: false,
@@ -100,6 +101,7 @@ export function sanitize(raw: unknown): SaveData {
       bestStreak: num(st.bestStreak, 0),
       maxAltitude: num(st.maxAltitude, 0),
       runs: num(st.runs, 0),
+      surges: num(st.surges, 0),
     },
     aura,
     unlocked: [...new Set(unlocked)],

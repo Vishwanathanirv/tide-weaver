@@ -4,7 +4,7 @@ import type { Aura } from "./save";
 import { mulberry32 } from "./rng";
 import type { CalloutKind } from "./juice";
 import { Surfer } from "./surfer";
-import { abyss, birds, caustics, hazards, observatory, props, type View } from "./world";
+import { abyss, birds, caustics, hazards, observatory, pod, props, type View } from "./world";
 
 type RGB = [number, number, number];
 
@@ -199,6 +199,10 @@ export interface FrameState {
   obsX: number;
   obsY: number;
   obsA: number;
+  /** 0..1: how much of the current Surge is left. */
+  surge: number;
+  /** Perfect-dive streak, which calls the dolphins. */
+  streak: number;
 }
 
 export class Renderer {
@@ -237,6 +241,13 @@ export class Renderer {
   private bars = 0;
   private barsTarget = 0;
   private bass = 0;
+  /** Camera feel: where the spirit sits across the screen, roll, dive and surge shots, dolphin pod fade. */
+  private ax = 0.32;
+  private roll = 0;
+  private tilt = 0;
+  private diveK = 0;
+  private surgeK = 0;
+  private podA = 0;
   private surfer = new Surfer();
   private view: View = { ctx: null as unknown as CanvasRenderingContext2D, w: 1, h: 1, scale: 1, sx: (x) => this.sx(x), sy: (y) => this.sy(y), wx: (x) => this.wx(x) };
   private calls: { text: string; kind: CalloutKind; x: number; y: number; life: number; big: boolean }[] = [];
@@ -364,6 +375,11 @@ export class Renderer {
     this.zoneTint = zone;
   }
 
+  /** A quick sideways lean of the whole picture, settling back: landings and wipe-outs. */
+  swing(amount: number): void {
+    this.tilt = Math.max(-0.08, Math.min(0.08, this.tilt + amount));
+  }
+
   kick(amount: number): void {
     this.shake = Math.max(this.shake, amount);
   }
@@ -379,7 +395,7 @@ export class Renderer {
   }
 
   sx(x: number): number {
-    return (x - this.camX) * this.scale + this.w * 0.32;
+    return (x - this.camX) * this.scale + this.w * this.ax;
   }
 
   sy(y: number): number {
@@ -387,7 +403,7 @@ export class Renderer {
   }
 
   wx(sx: number): number {
-    return (sx - this.w * 0.32) / this.scale + this.camX;
+    return (sx - this.w * this.ax) / this.scale + this.camX;
   }
 
   draw(f: FrameState): void {
@@ -397,17 +413,31 @@ export class Renderer {
     const py = lerp(s.py, s.y, f.alpha);
     const ground = f.terrain.height(px);
     const alt = Math.max(0, py - ground);
-    // Altitude and speed both pull the camera back; impacts punch it in for a moment.
-    const speedZoom = 1 / (1 + Math.max(0, f.speed - 1100) / 3500);
-    const targetZoom = clamp((520 / (alt + 520)) * speedZoom, 0.16, 1);
+    // Close by default. Height and speed ease it back gently; a dive pushes in, a Surge pulls out
+    // and LOCKED IN slowly pushes in with a drifting lean. Impacts punch it in for a moment.
     const k = this.ready ? 1 - Math.exp(-f.dt * 3) : 1;
-    this.zoom = lerp(this.zoom, this.base * targetZoom, k);
+    const ease = (v: number, target: number, rate: number) => v + (target - v) * (this.ready ? 1 - Math.exp(-f.dt * rate) : 1);
+    this.diveK = ease(this.diveK, f.holding && f.spirit.grounded ? 1 : 0, 5);
+    this.surgeK = ease(this.surgeK, f.surge, 6);
+    const speedZoom = 1 / (1 + Math.max(0, f.speed - 1500) / 7000);
+    const shot = 1 + 0.1 * this.diveK + 0.07 * this.bars - 0.1 * this.surgeK;
+    const targetZoom = clamp((700 / (alt + 700)) * speedZoom, 0.34, 1);
+    this.zoom = lerp(this.zoom, clamp(this.base * 1.28, 0.6, 1.5) * targetZoom * shot, k);
+    // Look ahead: the faster you go, the further left the spirit sits.
+    const speedN = clamp((f.speed - 500) / 2000, 0, 1);
+    this.ax = ease(this.ax, 0.34 - 0.11 * speedN - 0.03 * this.surgeK, 2);
+    // Roll with the path, a lean kicked by impacts, and a slow drift while LOCKED IN.
+    const path = Math.atan2(f.spirit.vy, f.spirit.vx);
+    const rollTarget = f.reducedMotion ? 0 : clamp(path * 0.16 + this.tilt + Math.sin(f.time * 0.45) * 0.035 * this.bars, -0.08, 0.08);
+    this.roll = ease(this.roll, rollTarget, 3.2);
+    this.tilt *= Math.exp(-f.dt * 2.4);
     this.punch = Math.max(0, this.punch - f.dt * 0.35);
     this.scale = this.zoom * (1 + (f.reducedMotion ? 0 : this.punch));
     this.bars += (this.barsTarget - this.bars) * (1 - Math.exp(-f.dt * 5));
     this.camX = px;
     const depth = Math.max(0, ground - py);
-    const targetY = ground + Math.max(0, alt - 2200) * 0.85 - depth * 0.85;
+    const lead = clamp(f.spirit.vy * 0.11, -150, 150);
+    const targetY = ground + Math.max(0, alt - 2200) * 0.85 - depth * 0.85 + lead;
     this.camY = this.ready ? lerp(this.camY, targetY, 1 - Math.exp(-f.dt * 4)) : targetY;
     this.ready = true;
     this.fx.update(f.dt, f.time);
@@ -421,6 +451,16 @@ export class Renderer {
     }
     this.shake = Math.max(0, this.shake - f.dt * 3);
 
+    // The world layers roll about the middle of the screen; the scale keeps the corners covered.
+    ctx.save();
+    if (Math.abs(this.roll) > 0.0005) {
+      const r = Math.abs(this.roll);
+      const cover = Math.max(Math.cos(r) + (w / h) * Math.sin(r), Math.cos(r) + (h / w) * Math.sin(r));
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate(this.roll);
+      ctx.scale(cover, cover);
+      ctx.translate(-w / 2, -h / 2);
+    }
     this.sky(f, wt);
     this.mountains(wt);
     this.view.ctx = ctx;
@@ -441,11 +481,15 @@ export class Renderer {
     abyss(this.view, f.terrain, f.time);
     hazards(this.view, f.terrain, f.frame, f.hazardsLive);
     props(this.view, f.terrain, f.time);
+    this.podA = ease(this.podA, f.streak >= 3 ? 1 : 0, f.streak >= 3 ? 1.2 : 0.6);
+    if (this.podA > 0.02) pod(this.view, f.terrain, px, f.time, this.podA);
     this.trailLayer(f, px, py);
     this.particlesLayer(f, wt);
     this.spiritLayer(f, px, py);
     this.weatherLayer(f, wt);
     this.textLayer(f);
+    ctx.restore();
+    this.bannerLayer(f);
 
     const paperish = wt[TW] + wt[PAPER];
     if (this.grain && paperish > 0.01) {
@@ -1082,12 +1126,12 @@ export class Renderer {
         ctx.fillRect(0, 0, w, h);
       }
     }
-    const sp = (f.speed - 1300) / 1300;
+    const sp = Math.max((f.speed - 900) / 1300, f.surge * 0.9);
     if (sp > 0 && !f.reducedMotion) {
       ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.25, sp * 0.3)})`;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 18; i++) {
         const y = ((i * 131.7) % h) * 0.9 + h * 0.05;
         const x = w - ((f.time * 1600 + i * 211) % (w + 300));
         ctx.moveTo(x, y);
@@ -1098,7 +1142,7 @@ export class Renderer {
   }
 
   private textLayer(f: FrameState): void {
-    const { ctx, w, h } = this;
+    const { ctx } = this;
     ctx.textAlign = "center";
     for (const t of this.texts) {
       if (t.life <= 0) continue;
@@ -1129,6 +1173,13 @@ export class Renderer {
       ctx.letterSpacing = "0px";
       ctx.restore();
     }
+    ctx.textAlign = "start";
+  }
+
+  /** The banner stays level, outside the camera roll. */
+  private bannerLayer(f: FrameState): void {
+    const { ctx, w, h } = this;
+    ctx.textAlign = "center";
     if (this.banner.life > 0) {
       this.banner.life -= f.dt;
       const b = this.banner.life;
