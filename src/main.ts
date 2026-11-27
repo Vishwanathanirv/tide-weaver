@@ -13,6 +13,7 @@ import { LoFi } from "./lofi";
 import { Juice } from "./juice";
 import { BOARDS, MAX_LEVEL, SCARVES, UPGRADES, boardOf, drainOf, pullOf, scarfOf, surgeCoolOf, surgeCostOf } from "./gear";
 import { GEMS_PER_GOAL, GEMS_PER_RANK, allDone, check, deal, emptyCounters, questText, type Counters } from "./quests";
+import { Rival } from "./rival";
 import { Recorder, Replay, decode, encode, type Ghost } from "./ghost";
 import { ClipRecorder, clipsSupported } from "./clip";
 
@@ -255,6 +256,9 @@ let replay: Replay | null = null;
 let ghostFade = 1;
 let ghostToasted = false;
 const ghostView = { x: 0, y: 0, angle: 0, a: 0 };
+/** The wandering rival: a computer-steered spirit on its own copy of the wave. Never touches physics or ghosts. */
+let rival: Rival | null = null;
+const rivalView = { x: 0, y: 0, angle: 0, a: 0 };
 let scarfLen = 1;
 const clips = new ClipRecorder(() => score.stream);
 let clipUntil = 0;
@@ -336,6 +340,7 @@ function newRun(retry = false): void {
   stormShown = false;
   replay = linkGhost && linkGhost.seed === seed ? new Replay(linkGhost, seed) : null;
   ghostFade = 1;
+  rival = tip === -1 && mode !== "zen" ? new Rival(seed) : null;
   if (replay && !ghostToasted) {
     ghostToasted = true;
     toast(`Racing a ghost · ${fmt(linkGhost!.score)} flow`);
@@ -480,6 +485,18 @@ function drawClip(): void {
 const canSurge = (): boolean => spirit.surgeCd <= 0 && !spirit.under && (mode === "zen" || run.light >= 0.2);
 
 /** Second verb. Costs some light (not in Zen) and needs the cooldown to be over. */
+/** The player passed the wandering spirit: a small reward, once per rival. */
+function overtook(): void {
+  spirit.flow += 600;
+  run.light = Math.min(1, run.light + 0.1);
+  save.bank += 1;
+  counters.gem += 1;
+  renderer.callout("passed the wanderer", "clean", spirit.x, spirit.y + 70, true);
+  renderer.popup("+1 gem", spirit.x, spirit.y + 30);
+  score.chain(pitchChain++, 1, 0.9);
+  buzz(20);
+}
+
 function surgeNow(): void {
   if (paused || over || ending >= 0 || respawn >= 0 || !started) return;
   idle = 0;
@@ -1306,6 +1323,7 @@ function tick(dt: number): void {
   if (recValid) rec.hold(spirit.frames, hold);
   step(spirit, terrain, hold, ev, dt, hazardsOn());
   if (replay) replay.advance(spirit.frames);
+  if (rival && rival.advance(spirit.frames, spirit.x)) overtook();
   const dx = spirit.x - before;
   run.idle = idle;
   updateRun(run, spirit, ev, dx, dt, rev);
@@ -1756,6 +1774,14 @@ function frame(now: number): void {
     ghostView.angle = gs.angle;
     ghostView.a = 0.8 * ghostFade;
   }
+  if (rival) {
+    const rs = rival.spirit;
+    const ra = paused ? 1 : acc / STEP;
+    rivalView.x = rs.px + (rs.x - rs.px) * ra;
+    rivalView.y = rs.py + (rs.y - rs.py) * ra;
+    rivalView.angle = rs.angle;
+    rivalView.a = rival.passed ? Math.max(0.25, 0.55 - Math.max(0, spirit.x - rs.x) / 6000) : 0.8;
+  }
   // Module 1: the lo-fi stems follow the multiplier.
   const live = started && !paused && !over && ending < 0;
   const change = lofi.update(run.mult, live);
@@ -1794,6 +1820,7 @@ function frame(now: number): void {
     scarf: scarfLen,
     surgeReady: started && canSurge(),
     ghost: replay && ghostFade > 0 ? ghostView : null,
+    rival: rival && started && !over ? rivalView : null,
     title: titleOn && !started,
     intro: introK,
     tide: tideStart >= 0 && tideA > 0.01 ? tideView : null,

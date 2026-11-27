@@ -1,4 +1,4 @@
-import { GATE_HEIGHT, LEV_EVERY, RING_CHUNK, WHIRL_R, gateShut, lagoonAt, railY, spikeUp, BEAT_STEPS, type Rail, type Terrain } from "./terrain";
+import { GATE_HEIGHT, LEV_EVERY, METEOR_SETTLE, RING_CHUNK, WHIRL_R, gateShut, lagoonAt, railY, spikeUp, BEAT_STEPS, type Rail, type Terrain } from "./terrain";
 
 /** What the world layer needs from the camera. */
 export interface View {
@@ -1255,4 +1255,141 @@ export function framing(v: View, camX: number, time: number, tint: [number, numb
     ctx.fillStyle = g;
     ctx.fillRect(bx - 300 * s, by - 80 * s, 600 * s, 160 * s);
   }
+}
+
+/** Abyssal caverns: a dark vault under the surface, hung with glowing crystals around the gem trail. */
+export function caverns(v: View, t: Terrain, time: number): void {
+  const { ctx } = v;
+  chunks(v, (c) => {
+    for (const cv of t.chunk(c).caverns) {
+      const x0 = v.sx(cv.x);
+      const x1 = v.sx(cv.x + cv.w);
+      if (x1 < -40 || x0 > v.w + 40) continue;
+      const step = 40;
+      ctx.beginPath();
+      const top: number[] = [];
+      const bot: number[] = [];
+      const n = Math.max(2, Math.ceil(cv.w / step));
+      for (let i = 0; i <= n; i++) {
+        const wx = cv.x + (cv.w * i) / n;
+        const u = i / n;
+        const swell = Math.sin(Math.PI * u);
+        top.push(v.sy(t.height(wx) - 40 * swell));
+        bot.push(v.sy(t.height(wx) - 120 - 300 * Math.pow(swell, 0.6)));
+      }
+      ctx.moveTo(x0, top[0]);
+      for (let i = 1; i <= n; i++) ctx.lineTo(x0 + ((x1 - x0) * i) / n, top[i]);
+      for (let i = n; i >= 0; i--) ctx.lineTo(x0 + ((x1 - x0) * i) / n, bot[i]);
+      ctx.closePath();
+      const mid = (top[n >> 1] + bot[n >> 1]) / 2;
+      const g = ctx.createRadialGradient((x0 + x1) / 2, mid, 10, (x0 + x1) / 2, mid, Math.max(60, (x1 - x0) / 1.6));
+      g.addColorStop(0, "rgba(8,14,40,0.62)");
+      g.addColorStop(1, "rgba(4,6,22,0.3)");
+      ctx.fillStyle = g;
+      ctx.fill();
+      // Crystals along the ceiling and floor of the vault.
+      for (let i = 1; i < n; i += 2) {
+        const px = x0 + ((x1 - x0) * i) / n;
+        const hue = i % 4 === 1 ? "120,255,235" : "190,150,255";
+        const tw = 0.55 + 0.45 * Math.sin(time * 1.7 + i * 1.3);
+        const len = (14 + (i % 3) * 7) * Math.max(0.6, v.scale);
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = `rgba(${hue},${0.5 * tw})`;
+        ctx.beginPath();
+        ctx.moveTo(px - len * 0.22, top[i] + 1);
+        ctx.lineTo(px, top[i] + len);
+        ctx.lineTo(px + len * 0.22, top[i] + 1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(px - len * 0.2, bot[i] - 1);
+        ctx.lineTo(px, bot[i] - len * 0.8);
+        ctx.lineTo(px + len * 0.2, bot[i] - 1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+      }
+    }
+  });
+}
+
+/** Meteors falling into the sea ahead of the spirit, the splash-ramps they raise and the shards they leave. */
+export function meteors(v: View, t: Terrain, time: number, frame: number): void {
+  const { ctx } = v;
+  const sc = Math.max(0.6, v.scale);
+  chunks(v, (c) => {
+    const ch = t.chunk(c);
+    for (const m of ch.meteors) {
+      if (m.at < 0) continue;
+      const age = frame - m.at;
+      if (age < 0 || age > 120) continue;
+      const gx = v.sx(m.x);
+      const gy = v.sy(t.height(m.x));
+      if (gx < -300 || gx > v.w + 300) continue;
+      if (age < 22) {
+        const k = age / 22;
+        const hx = gx + (1 - k) * 560 * sc;
+        const hy = gy - (1 - k) * 760 * sc;
+        const tx = gx + (1 - Math.max(0, k - 0.2)) * 560 * sc;
+        const ty = gy - (1 - Math.max(0, k - 0.2)) * 760 * sc;
+        ctx.globalCompositeOperation = "lighter";
+        const tr = ctx.createLinearGradient(hx, hy, tx, ty);
+        tr.addColorStop(0, "rgba(255,210,140,0.9)");
+        tr.addColorStop(1, "rgba(255,120,60,0)");
+        ctx.strokeStyle = tr;
+        ctx.lineWidth = 9 * sc;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(tx, ty);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255,240,200,0.95)";
+        ctx.beginPath();
+        ctx.arc(hx, hy, 9 * sc, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+      } else {
+        const k = (age - 22) / 60;
+        if (k < 1) {
+          ctx.globalCompositeOperation = "lighter";
+          ctx.strokeStyle = `rgba(255,214,150,${0.7 * (1 - k)})`;
+          ctx.lineWidth = Math.max(1, 5 * (1 - k)) * sc;
+          ctx.beginPath();
+          ctx.ellipse(gx, gy, (40 + 260 * k) * sc, (8 + 26 * k) * sc, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          const rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, 180 * sc);
+          rg.addColorStop(0, `rgba(255,190,110,${0.35 * (1 - k)})`);
+          rg.addColorStop(1, "rgba(255,190,110,0)");
+          ctx.fillStyle = rg;
+          ctx.fillRect(gx - 180 * sc, gy - 180 * sc, 360 * sc, 360 * sc);
+          ctx.globalCompositeOperation = "source-over";
+        }
+      }
+    }
+    for (const sh of ch.shards) {
+      if (sh.taken) continue;
+      const x = v.sx(sh.x);
+      const y = v.sy(sh.y);
+      if (x < -30 || x > v.w + 30) continue;
+      const ready = sh.m.at >= 0 && frame - sh.m.at >= METEOR_SETTLE;
+      const live = sh.m.at >= 0;
+      const r = 11 * sc;
+      const spin = 0.55 + 0.45 * Math.sin(time * 3 + sh.x);
+      ctx.globalCompositeOperation = "lighter";
+      const halo = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
+      halo.addColorStop(0, `rgba(255,206,120,${ready ? 0.55 : live ? 0.2 : 0.1})`);
+      halo.addColorStop(1, "rgba(255,206,120,0)");
+      ctx.fillStyle = halo;
+      ctx.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = ready ? "rgb(255,222,132)" : "rgba(255,222,132,0.35)";
+      ctx.beginPath();
+      ctx.moveTo(x, y - r);
+      ctx.lineTo(x + r * 0.7 * spin, y);
+      ctx.lineTo(x, y + r);
+      ctx.lineTo(x - r * 0.7 * spin, y);
+      ctx.closePath();
+      ctx.fill();
+    }
+  });
 }

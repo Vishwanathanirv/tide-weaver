@@ -5,7 +5,7 @@ import type { Look } from "./surfer";
 import { mulberry32 } from "./rng";
 import type { CalloutKind } from "./juice";
 import { Surfer } from "./surfer";
-import { abyss, birds, caustics, deepLife, foreground, framing, hazards, landmarks, leviathan, life, observatory, perched, pod, props, rails, shrines, thunderheads, whirls, type View } from "./world";
+import { abyss, birds, caustics, caverns, meteors, deepLife, foreground, framing, hazards, landmarks, leviathan, life, observatory, perched, pod, props, rails, shrines, thunderheads, whirls, type View } from "./world";
 
 type RGB = [number, number, number];
 
@@ -209,6 +209,8 @@ export interface FrameState {
   surgeReady: boolean;
   /** Another player's ghost, in world space, with its fade (0..1); null when there is none. */
   ghost: { x: number; y: number; angle: number; a: number } | null;
+  /** The wandering rival spirit, same shape, drawn in warm light. */
+  rival?: { x: number; y: number; angle: number; a: number } | null;
   /** The title is showing (waiting for the first press), and how much of it is left (1 to 0). */
   title: boolean;
   intro: number;
@@ -591,7 +593,9 @@ export class Renderer {
     this.view.h = h;
     this.view.scale = this.scale;
     caustics(this.view, f.terrain, f.time, f.spirit.under);
+    caverns(this.view, f.terrain, f.time);
     abyss(this.view, f.terrain, f.time);
+    meteors(this.view, f.terrain, f.time, f.frame);
     hazards(this.view, f.terrain, f.frame, f.hazardsLive, f.spirit.bless);
     props(this.view, f.terrain, f.time);
     this.fogLayer(f, px, py);
@@ -604,7 +608,8 @@ export class Renderer {
     this.trailLayer(f, px, py);
     this.ribbonLayer(f, px, py);
     this.afterLayer(f);
-    this.ghostLayer(f);
+    this.ghostLayer(f.ghost, "170,220,255");
+    this.ghostLayer(f.rival ?? null, "255,196,120");
     this.particlesLayer(f, wt);
     this.spiritLayer(f, px, py);
     this.tideLayer(f);
@@ -1748,8 +1753,7 @@ export class Renderer {
   }
 
   /** Another player's run, replayed beside you: a pale rider with a halo, or an arrow at the edge. */
-  private ghostLayer(f: FrameState): void {
-    const g = f.ghost;
+  private ghostLayer(g: FrameState["ghost"], rgb: string): void {
     if (!g || g.a <= 0.01) return;
     const { ctx, w, h } = this;
     const sx = this.sx(g.x);
@@ -1759,7 +1763,7 @@ export class Renderer {
       const x = sx < 0 ? 22 : w - 22;
       const y = clamp(sy, 70, h - 70);
       const dir = sx < 0 ? -1 : 1;
-      ctx.fillStyle = "rgba(190,230,255,0.85)";
+      ctx.fillStyle = `rgba(${rgb},0.85)`;
       ctx.beginPath();
       ctx.moveTo(x + dir * 10, y);
       ctx.lineTo(x - dir * 8, y - 9);
@@ -1773,8 +1777,8 @@ export class Renderer {
     const hr = size * 2.4;
     ctx.globalCompositeOperation = "lighter";
     const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, hr);
-    grad.addColorStop(0, "rgba(170,220,255,0.45)");
-    grad.addColorStop(1, "rgba(170,220,255,0)");
+    grad.addColorStop(0, `rgba(${rgb},0.45)`);
+    grad.addColorStop(1, `rgba(${rgb},0)`);
     ctx.fillStyle = grad;
     ctx.fillRect(sx - hr, sy - hr, hr * 2, hr * 2);
     ctx.globalCompositeOperation = "source-over";
@@ -1782,11 +1786,11 @@ export class Renderer {
     ctx.translate(sx, sy);
     ctx.rotate(-g.angle);
     const s = size / 10;
-    ctx.fillStyle = "rgba(190,230,255,0.7)";
+    ctx.fillStyle = `rgba(${rgb},0.7)`;
     ctx.beginPath();
     ctx.ellipse(0, 0, 17 * s, 2.6 * s, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "rgba(190,230,255,0.6)";
+    ctx.strokeStyle = `rgba(${rgb},0.6)`;
     ctx.lineWidth = 4 * s;
     ctx.lineCap = "round";
     ctx.beginPath();
@@ -1794,7 +1798,7 @@ export class Renderer {
     ctx.lineTo(-1 * s, -13 * s);
     ctx.lineTo(1.5 * s, -23 * s);
     ctx.stroke();
-    ctx.fillStyle = "rgba(210,238,255,0.75)";
+    ctx.fillStyle = `rgba(${rgb},0.75)`;
     ctx.beginPath();
     ctx.arc(2.5 * s, -28 * s, 4.4 * s, 0, Math.PI * 2);
     ctx.fill();
