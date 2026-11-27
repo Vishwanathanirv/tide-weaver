@@ -122,7 +122,7 @@ npm run build      # type-check and build to dist/
 
 ## Hosting for income
 
-GitHub Pages and Vercel Hobby are for non-commercial use. For a monetised build use Cloudflare Pages (free, commercial use allowed): build command `npm run build`, output `dist`. `public/_headers` already carries the security headers. Set `VITE_POSTHOG_KEY` as a build variable to switch stats on. Stats go through the game own `/ingest` path, which `worker/index.ts` forwards to PostHog (EU by default; change `POSTHOG_HOST` in `wrangler.jsonc` for the US cloud).
+GitHub Pages and Vercel Hobby are for non-commercial use. For a monetised build use Cloudflare Pages (free, commercial use allowed): build command `npm run build`, output `dist`. `public/_headers` already carries the security headers. Set `VITE_POSTHOG_KEY` as a build variable to switch stats on. Stats go through the game own `/ingest` path, which `worker/index.ts` forwards to PostHog (US cloud by default; change `POSTHOG_HOST` in `wrangler.jsonc` if the project is on the EU cloud).
 
 ## Licence
 

@@ -14,7 +14,7 @@ export default {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/ingest/")) return env.ASSETS.fetch(request);
     if (request.method !== "POST" && request.method !== "OPTIONS") return new Response("Not found", { status: 404 });
-    const upstream = new URL((env.POSTHOG_HOST ?? "https://eu.i.posthog.com") + url.pathname.slice("/ingest".length) + url.search);
+    const upstream = new URL((env.POSTHOG_HOST ?? "https://us.i.posthog.com") + url.pathname.slice("/ingest".length) + url.search);
     const headers = new Headers();
     headers.set("content-type", request.headers.get("content-type") ?? "text/plain");
     headers.set("user-agent", request.headers.get("user-agent") ?? "tide-weaver");
