@@ -1860,6 +1860,16 @@ function fitBudget(): void {
 }
 window.addEventListener("resize", fitBudget);
 fitBudget();
+// Start where this device settled last time, so the adjustment is not seen twice.
+try {
+  const saved = Number(localStorage.getItem("tide-weaver.scale"));
+  if (saved >= 0.55 && saved < gov.scale) {
+    gov.scale = saved;
+    resize();
+  }
+} catch {
+  /* private mode */
+}
 newRun();
 // ?at=SECONDS starts the world clock later: for previewing skies and recording clips.
 const startAt = Number(params.get("at"));
@@ -1875,6 +1885,11 @@ let shownBest = "";
 
 function frame(now: number): void {
   if (gov.sample(now - last, !paused && !document.hidden)) {
+    try {
+      localStorage.setItem("tide-weaver.scale", gov.scale.toFixed(2));
+    } catch {
+      /* private mode */
+    }
     resize();
     renderer.fx.density = particleDensity();
   }
