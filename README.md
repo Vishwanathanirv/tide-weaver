@@ -124,6 +124,29 @@ npm run build      # type-check and build to dist/
 
 GitHub Pages and Vercel Hobby are for non-commercial use. For a monetised build use Cloudflare Pages (free, commercial use allowed): build command `npm run build`, output `dist`. `public/_headers` already carries the security headers. Set `VITE_POSTHOG_KEY` as a build variable to switch stats on. Stats go through the game own `/ingest` path, which `worker/index.ts` forwards to PostHog (US cloud by default; change `POSTHOG_HOST` in `wrangler.jsonc` if the project is on the EU cloud).
 
+## Limits
+
+- Browser only. Progress lives in localStorage on one device, so clearing site data clears it. A save code moves it between devices.
+- Nothing is verified server-side, so a player can edit their own save or ghost. There are no leaderboards or purchases for that to matter.
+- Difficulty was tuned by simulation against scripted riders (dive-the-downhills bots), not yet by many real players.
+- Touch features (haptics, swipe and double-tap Surge) were checked on one phone. Safari clip recording is untested.
+- Music and levels were measured, not listened to by anyone but the author.
+
+## Measured
+
+Machine: a Windows developer laptop, Chrome driven by Playwright with software rendering (no graphics card), 1280x720, Node 22 for builds.
+
+| What | Result | How |
+| --- | --- | --- |
+| Tests | 143 passing, deterministic physics replayed exactly | `npm test` |
+| Build size | 173 kB JavaScript (59 kB gzipped), 12.5 kB CSS, 482 kB in total with icons | `npm run build` |
+| Game code per frame | median 2.5 ms, p99 4.8 ms, worst 10.8 ms of a 16.7 ms frame | wrapped `requestAnimationFrame`, 12 s of play, dev build |
+| Frame pace at full resolution | average 20.1 ms, 10 percent of frames at 33 ms | 24 s of play on the live site |
+| Frame pace after the governor | average 16.7 ms, no frame over 20 ms | same run, once it settled (about 8 s) |
+| Audio level | median -27 dBFS RMS, peaks below -3 dBFS, no clipping | analyser on the master mix, 40 s of play |
+
+Simulated difficulty, not player data: a plain dive-the-downhills bot reaches the opening Sky-Rail on about two waves in three, and escapes the tidal wave on about 4 in 5 attempts that reach it.
+
 ## Licence
 
 All rights reserved.
