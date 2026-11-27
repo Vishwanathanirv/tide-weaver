@@ -358,8 +358,10 @@ function newRun(retry = false): void {
   replay = linkGhost && linkGhost.seed === seed ? new Replay(linkGhost, seed) : null;
   ghostFade = 1;
   rival = tip === -1 && mode !== "zen" ? new Rival(seed) : null;
-  demo = new Rival(seed);
-  demo.restart();
+  if (titleOn && !started) {
+    demo = new Rival(seed);
+    demo.restart();
+  } else demo = null;
   demoAcc = 0;
   if (replay && !ghostToasted) {
     ghostToasted = true;
@@ -507,12 +509,14 @@ const canSurge = (): boolean => spirit.surgeCd <= 0 && !spirit.under && (mode ==
 /** Second verb. Costs some light (not in Zen) and needs the cooldown to be over. */
 /** The player passed the wandering spirit: a small reward, once per rival. */
 function overtook(): void {
+  if (!rival || rival.met > 3) return;
   spirit.flow += 600;
   run.light = Math.min(1, run.light + 0.1);
   save.bank += 1;
   counters.gem += 1;
   renderer.callout("passed the wanderer", "clean", spirit.x, spirit.y + 70, true);
   renderer.popup("+1 gem", spirit.x, spirit.y + 30);
+  persist();
   score.chain(pitchChain++, 1, 0.9);
   buzz(20);
 }
@@ -1804,11 +1808,15 @@ function frame(now: number): void {
       demoAcc -= STEP;
       if (demo.spirit.x > DEMO_END) {
         demo.restart();
+        renderer.resetTrail();
         dip();
       }
     }
   }
-  if (demoWas && !demoOn) dip();
+  if (demoWas && !demoOn) {
+    dip();
+    demo = null;
+  }
   demoWas = demoOn;
   const vs = demoOn && demo ? demo.spirit : spirit;
   const vt = demoOn && demo ? demo.terrain : terrain;
@@ -1816,7 +1824,8 @@ function frame(now: number): void {
     const rs = rival.spirit;
     const ra = paused ? 1 : acc / STEP;
     rivalView.x = rs.px + (rs.x - rs.px) * ra;
-    rivalView.y = rs.py + (rs.y - rs.py) * ra;
+    // Drawn over the player's own water, at the rival's own height above its own.
+    rivalView.y = rs.py + (rs.y - rs.py) * ra - rival.terrain.height(rs.x) + terrain.height(rs.x);
     rivalView.angle = rs.angle;
     rivalView.a = rival.passed ? Math.max(0.25, 0.55 - Math.max(0, spirit.x - rs.x) / 6000) : 0.8;
   }

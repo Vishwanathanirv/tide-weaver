@@ -278,6 +278,7 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
       const wl = t.whirlAt(s.x);
       if (wl) {
         s.whirl = wl;
+        s.coyote = 0;
         s.whirlT = 0;
         s.whirlSpeed = s.speed;
         s.grounded = false;
@@ -288,6 +289,7 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
     }
     if (holding && k < PLUNGE_SLOPE && s.speed > PLUNGE_SPEED) {
       // Dolphin plunge: pierce the surface into the abyss.
+      s.coyote = 0;
       s.grounded = false;
       s.under = true;
       s.x += vx * dt;
@@ -341,6 +343,7 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
       const after = s.y - yr;
       if (before * after <= 0 || Math.abs(after) < 12) {
         s.rail = rl;
+        s.coyote = 0;
         s.speed = clamp(Math.hypot(s.vx, s.vy), MIN_SPEED, MAX_SPEED);
         s.y = yr;
         s.airRot = 0;
@@ -406,6 +409,7 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
     }
   }
   s.speed = clamp(speed, MIN_SPEED, MAX_SPEED);
+  s.coyote = 0;
   s.y = ground;
   s.grounded = true;
   s.angle = Math.atan(k);

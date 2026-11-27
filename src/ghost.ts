@@ -139,7 +139,7 @@ export function decode(code: string): Ghost | null {
     if (bytes[0] !== VERSION) return null;
     const flags = bytes[1];
     const up = bytes[2];
-    if (up === undefined || up > 0x2f) return null;
+    if (up === undefined || (up & 7) > 5 || up >> 3 > 5) return null;
     const at = { i: 3 };
     const seed = readVar(bytes, at);
     if (seed > 0xffffffff) return null;

@@ -1258,6 +1258,9 @@ export function framing(v: View, camX: number, time: number, tint: [number, numb
 }
 
 /** Abyssal caverns: a dark vault under the surface, hung with glowing crystals around the gem trail. */
+const cavTop = new Float32Array(64);
+const cavBot = new Float32Array(64);
+
 export function caverns(v: View, t: Terrain, time: number): void {
   const { ctx } = v;
   chunks(v, (c) => {
@@ -1267,15 +1270,15 @@ export function caverns(v: View, t: Terrain, time: number): void {
       if (x1 < -40 || x0 > v.w + 40) continue;
       const step = 40;
       ctx.beginPath();
-      const top: number[] = [];
-      const bot: number[] = [];
-      const n = Math.max(2, Math.ceil(cv.w / step));
+      const top = cavTop;
+      const bot = cavBot;
+      const n = Math.min(60, Math.max(2, Math.ceil(cv.w / step)));
       for (let i = 0; i <= n; i++) {
         const wx = cv.x + (cv.w * i) / n;
         const u = i / n;
         const swell = Math.sin(Math.PI * u);
-        top.push(v.sy(t.height(wx) - 40 * swell));
-        bot.push(v.sy(t.height(wx) - 120 - 300 * Math.pow(swell, 0.6)));
+        top[i] = v.sy(t.height(wx) - 40 * swell);
+        bot[i] = v.sy(t.height(wx) - 120 - 300 * Math.pow(swell, 0.6));
       }
       ctx.moveTo(x0, top[0]);
       for (let i = 1; i <= n; i++) ctx.lineTo(x0 + ((x1 - x0) * i) / n, top[i]);
