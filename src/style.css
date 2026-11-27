@@ -352,6 +352,7 @@ a:focus-visible {
 .sw-comet { background: radial-gradient(circle at 35% 35%, #ffffff, #6fa8ff); }
 .sw-lotus { background: radial-gradient(circle at 35% 35%, #ffe3f2, #ff6fbf); }
 .sw-prism { background: conic-gradient(#ff6b6b, #ffd36b, #6bff9e, #6bd3ff, #b06bff, #ff6b6b); }
+.sw-starlight { background: radial-gradient(circle at 35% 35%, #fff4cf, #7fa6ff 70%, #2a2f55); }
 
 .field {
   display: block;

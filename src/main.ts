@@ -29,7 +29,10 @@ const AURA_INFO: Record<Aura, AuraInfo> = {
   comet: { name: "Comet", need: "Climb 1,500 high", done: (s) => s.maxAltitude >= 1500, progress: (s) => `${Math.min(1500, Math.round(s.maxAltitude))}/1500` },
   lotus: { name: "Lotus", need: "A streak of 10 perfect dives", done: (s) => s.bestStreak >= 10, progress: (s) => `${Math.min(10, s.bestStreak)}/10` },
   prism: { name: "Prism", need: "Surf 25 km in total", done: (s) => s.distance >= 250000, progress: (s) => `${Math.min(25, s.distance / 10000).toFixed(1)}/25 km` },
+  // Secret: given only by the Starlight Observatory, and listed only once it is found.
+  starlight: { name: "Starlight", need: "", done: () => false, progress: () => "" },
 };
+const SECRET_AURA: Aura = "starlight";
 
 interface Ctx {
   run: Run;
@@ -37,7 +40,7 @@ interface Ctx {
   clock: number;
 }
 
-const ACHIEVEMENTS: { id: string; name: string; need: string; test: (c: Ctx) => boolean }[] = [
+const ACHIEVEMENTS: { id: string; name: string; need: string; test: (c: Ctx) => boolean; secret?: true }[] = [
   { id: "first", name: "First light", need: "Land a perfect dive", test: (c) => c.s.perfects >= 1 },
   { id: "streak5", name: "In the pocket", need: "5 perfect dives in a row", test: (c) => c.s.bestCombo >= 5 },
   { id: "streak15", name: "Unbroken", need: "15 perfect dives in a row", test: (c) => c.s.bestCombo >= 15 },
@@ -51,7 +54,11 @@ const ACHIEVEMENTS: { id: string; name: string; need: string; test: (c: Ctx) => 
   { id: "skies", name: "Five skies", need: "See all five skies in one run", test: (c) => c.clock >= CYCLE * (STYLE_COUNT - 1) + BLEND },
   { id: "daily", name: "Same wave as everyone", need: "Ride today's wave for a minute", test: (c) => c.run.mode === "daily" && c.run.time >= 60 },
   { id: "zen", name: "Still water", need: "Ten minutes in Zen", test: (c) => c.run.mode === "zen" && c.run.time >= 600 },
+  { id: "observatory", name: "Starlight Observatory", need: "Found above the rain", test: () => false, secret: true },
 ];
+
+/** The observatory shows itself to a spirit flying this high while the ink rain falls. */
+const OBS_ALT = 2200;
 
 // ---------------------------------------------------------------- storage
 
@@ -158,6 +165,12 @@ const chain: string[] = [];
 let chainPts = 0;
 /** Seconds until the run resets after a wipe-out (Geometry Dash style), or -1. */
 let respawn = -1;
+/** The motif greets the first ride of each visit. */
+let greeted = false;
+let obsX = 0;
+let obsY = 0;
+let obsA = 0;
+let obsSeen = false;
 const weights = new Array(STYLE_COUNT).fill(0);
 weights[0] = 1;
 
@@ -211,6 +224,8 @@ function newRun(retry = false): void {
   chain.length = 0;
   chainPts = 0;
   respawn = -1;
+  obsA = 0;
+  obsSeen = false;
   started = false;
   idle = 0;
   juice.reset();
@@ -437,7 +452,7 @@ function openPause(): void {
 }
 
 function openAuras(): void {
-  const cards = AURAS.map((a) => {
+  const cards = AURAS.filter((a) => a !== SECRET_AURA || save.unlocked.includes(a)).map((a) => {
     const info = AURA_INFO[a];
     const have = save.unlocked.includes(a);
     const on = save.aura === a;
@@ -445,15 +460,16 @@ function openAuras(): void {
       <i class="swatch sw-${a}" aria-hidden="true"></i><b>${info.name}</b><span>${have ? (on ? "Wearing" : "Wear") : `${info.need} · ${info.progress(save.stats)}`}</span>
     </button>`;
   }).join("");
-  const done = ACHIEVEMENTS.filter((a) => save.achievements.includes(a.id)).length;
-  const ach = ACHIEVEMENTS.map((a) => {
+  const shown = ACHIEVEMENTS.filter((a) => !a.secret || save.achievements.includes(a.id));
+  const done = shown.filter((a) => save.achievements.includes(a.id)).length;
+  const ach = shown.map((a) => {
     const got = save.achievements.includes(a.id);
     return `<li class="${got ? "got" : ""}"><b>${got ? "✦" : "·"} ${a.name}</b><span>${a.need}</span></li>`;
   }).join("");
   openPanel(`
     <h2 id="panel-title">Auras</h2>
     <div class="auras">${cards}</div>
-    <h3>Milestones · ${done}/${ACHIEVEMENTS.length}</h3>
+    <h3>Milestones · ${done}/${shown.length}</h3>
     <ul class="ach">${ach}</ul>
     <div class="row"><button class="primary" data-act="back" data-autofocus>Back</button></div>
   `);
@@ -469,9 +485,11 @@ function openSettings(): void {
     <h3>Visuals</h3>
     <div class="row">
       <button data-act="motion" aria-pressed="${save.reducedMotion}">Calm motion ${save.reducedMotion ? "on" : "off"}</button>
+      <button data-act="flashes" aria-pressed="${save.flashes}">Flashes ${save.flashes ? "on" : "off"}</button>
       <button data-act="particles" aria-pressed="${save.lightParticles}">Particles ${save.lightParticles ? "light" : "full"}</button>
       <button data-act="tips">Show tips again</button>
     </div>
+    <label class="slider">Screen shake <input type="range" id="shake" min="0" max="100" value="${Math.round(save.shake * 100)}"></label>
     <h3>Progress</h3>
     <label class="field">Save code<textarea id="code" rows="3" spellcheck="false" placeholder="Paste a save code here to load it"></textarea></label>
     <div class="row">
@@ -489,6 +507,12 @@ function openSettings(): void {
     wake();
     persist();
   };
+  const shake = panel.querySelector<HTMLInputElement>("#shake")!;
+  shake.addEventListener("input", () => {
+    save.shake = Number(shake.value) / 100;
+    persist();
+  });
+  shake.addEventListener("change", () => renderer.kick(0.5));
   music.addEventListener("input", apply);
   notes.addEventListener("input", apply);
   notes.addEventListener("change", () => score.note(9, 1, 0.6));
@@ -609,6 +633,11 @@ panel.addEventListener("click", async (e) => {
       persist();
       openSettings();
       break;
+    case "flashes":
+      save.flashes = !save.flashes;
+      persist();
+      openSettings();
+      break;
     case "particles":
       save.lightParticles = !save.lightParticles;
       renderer.fx.density = save.lightParticles ? 0.5 : 1;
@@ -706,6 +735,19 @@ function checkAchievements(): void {
   }
 }
 
+function revealObservatory(): void {
+  obsSeen = true;
+  obsX = spirit.x + 1500;
+  obsY = spirit.y + 250;
+  score.motif(0, true);
+  renderer.showBanner("Starlight Observatory");
+  if (save.achievements.includes("observatory")) return;
+  save.achievements.push("observatory");
+  if (!save.unlocked.includes(SECRET_AURA)) save.unlocked.push(SECRET_AURA);
+  persist();
+  toast("✦ Starlight Observatory · new aura: Starlight");
+}
+
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 function updateWeights(): number {
@@ -746,10 +788,13 @@ function tick(dt: number): void {
 
   if (ev.takeoff) score.note(2 + Math.min(4, currentSpeed(spirit) / 500), zone, 0.3);
   if (ev.landing === "perfect") {
-    const d = 4 + Math.min(8, spirit.combo);
-    score.note(d, zone, 0.9);
-    score.note(d + 2, zone, 0.7, 1);
-    score.note(d + 4, zone, 0.55, 2);
+    if (spirit.combo >= 5 && spirit.combo % 5 === 0) score.motif(zone);
+    else {
+      const d = 4 + Math.min(8, spirit.combo);
+      score.note(d, zone, 0.9);
+      score.note(d + 2, zone, 0.7, 1);
+      score.note(d + 4, zone, 0.55, 2);
+    }
     save.stats.perfects++;
     if (spirit.combo > save.stats.bestStreak) save.stats.bestStreak = spirit.combo;
     renderer.fx.burst(spirit.x, spirit.y, 26 + Math.min(20, spirit.combo * 2), 420, [255, 236, 190], 0, 0.9);
@@ -835,7 +880,8 @@ function tick(dt: number): void {
   if (rev.tierUp) {
     renderer.popup(TIERS[run.tier], spirit.x, spirit.y + 60, true);
     renderer.pulse(spirit.x, ground, 0.9);
-    score.milestone();
+    if (run.tier === TIERS.length - 1) score.motif(zone, true);
+    else score.milestone();
   }
   if (rev.km) {
     renderer.showBanner(`${rev.km} km`);
@@ -844,8 +890,9 @@ function tick(dt: number): void {
   if (mode === "journey" && !passedBest && save.bestDistance > 2000 && spirit.distance > save.bestDistance) {
     passedBest = true;
     renderer.popup("Past your best", spirit.x, spirit.y + 40, true);
-    score.milestone();
+    score.motif(zone, true);
   }
+  if (!obsSeen && alt > OBS_ALT && weights[4] > 0.6 && !spirit.under) revealObservatory();
   if (alt > save.stats.maxAltitude) {
     save.stats.maxAltitude = alt;
     if (alt >= 1500) unlockAuras();
@@ -958,6 +1005,17 @@ function frame(now: number): void {
       checkAchievements();
     }
   }
+  if (started && !greeted) {
+    greeted = true;
+    score.motif(terrain.zone(spirit.x));
+  }
+  // Dev only: ?obs=1 shows the observatory at once, for checking how it looks.
+  if (import.meta.env.DEV && params.get("obs") === "1" && !obsSeen && started) {
+    obsSeen = true;
+    obsX = spirit.x + 900;
+    obsY = spirit.y + 200;
+  }
+  if (obsSeen && obsA < 1) obsA = Math.min(1, obsA + dt / 1.6);
   const style = updateWeights();
   if (style !== lastStyle) {
     if (lastStyle !== -1) renderer.showBanner(STYLES[style]);
@@ -993,6 +1051,11 @@ function frame(now: number): void {
     bestX: mode === "journey" && save.bestDistance > 2000 ? save.bestDistance : -1,
     frame: spirit.frames,
     hazardsLive: hazardsOn(),
+    shake: save.shake,
+    flashes: save.flashes,
+    obsX,
+    obsY,
+    obsA,
   });
   tripFill.style.transform = `scaleX(${Math.min(1, spirit.distance / 30000)})`;
   const bn = BIOMES[biomeAt(spirit.x)];
@@ -1029,3 +1092,10 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// Offline play and install: production builds only, so dev reloads stay fresh.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}

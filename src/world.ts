@@ -227,3 +227,130 @@ export function birds(v: View, time: number, dark: boolean): void {
     ctx.stroke();
   }
 }
+
+/** The constellation that circles the observatory: angle offsets and radii, fixed. */
+const ORBIT = [0, 0.55, 1.1, 1.5, 2.2, 2.75, 3.3, 3.9, 4.4, 5.0, 5.6];
+
+/**
+ * The Starlight Observatory: a floating island with a domed telescope, hidden above the rain
+ * clouds. Drawn in world space at (x, y), where y is the island's top; `a` fades it in.
+ */
+export function observatory(v: View, x: number, y: number, time: number, a: number): void {
+  const { ctx } = v;
+  const s = v.scale;
+  const cx = v.sx(x);
+  const cy = v.sy(y);
+  const R = 260 * s;
+  if (cx < -R * 3 || cx > v.w + R * 3 || cy < -R * 3 || cy > v.h + R * 3) return;
+  ctx.save();
+  ctx.globalAlpha = a;
+
+  // Halo.
+  ctx.globalCompositeOperation = "lighter";
+  const halo = ctx.createRadialGradient(cx, cy - R * 0.4, R * 0.1, cx, cy - R * 0.4, R * 2.6);
+  halo.addColorStop(0, "rgba(150,180,255,0.32)");
+  halo.addColorStop(0.5, "rgba(110,130,230,0.1)");
+  halo.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(cx - R * 2.6, cy - R * 3, R * 5.2, R * 5.2);
+
+  // The telescope's beam, slowly sweeping the sky.
+  const sweep = -1.05 + Math.sin(time * 0.35) * 0.18;
+  const bx = cx + R * 0.22;
+  const by = cy - R * 0.62;
+  const len = R * 7;
+  const spread = 0.07;
+  const beam = ctx.createLinearGradient(bx, by, bx + Math.cos(sweep) * len, by + Math.sin(sweep) * len);
+  beam.addColorStop(0, "rgba(220,232,255,0.34)");
+  beam.addColorStop(1, "rgba(220,232,255,0)");
+  ctx.fillStyle = beam;
+  ctx.beginPath();
+  ctx.moveTo(bx, by);
+  ctx.lineTo(bx + Math.cos(sweep - spread) * len, by + Math.sin(sweep - spread) * len);
+  ctx.lineTo(bx + Math.cos(sweep + spread) * len, by + Math.sin(sweep + spread) * len);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalCompositeOperation = "source-over";
+
+  // Island: a jagged rock hanging under a flat top, lit from above.
+  const bob = Math.sin(time * 0.9) * 8 * s;
+  const top = cy + bob;
+  ctx.fillStyle = "#1c1f3a";
+  ctx.beginPath();
+  ctx.moveTo(cx - R, top);
+  ctx.lineTo(cx + R, top);
+  ctx.lineTo(cx + R * 0.78, top + R * 0.28);
+  ctx.lineTo(cx + R * 0.52, top + R * 0.42);
+  ctx.lineTo(cx + R * 0.3, top + R * 0.8);
+  ctx.lineTo(cx + R * 0.08, top + R * 0.66);
+  ctx.lineTo(cx - R * 0.12, top + R * 1.15);
+  ctx.lineTo(cx - R * 0.34, top + R * 0.62);
+  ctx.lineTo(cx - R * 0.6, top + R * 0.5);
+  ctx.lineTo(cx - R * 0.82, top + R * 0.24);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(170,190,255,0.55)";
+  ctx.lineWidth = Math.max(1, 3 * s);
+  ctx.beginPath();
+  ctx.moveTo(cx - R, top);
+  ctx.lineTo(cx + R, top);
+  ctx.stroke();
+
+  // Tower and dome.
+  const tw = R * 0.5;
+  const th = R * 0.34;
+  ctx.fillStyle = "#2a2f55";
+  ctx.fillRect(cx - tw / 2, top - th, tw, th);
+  ctx.fillStyle = "#3a4275";
+  ctx.beginPath();
+  ctx.arc(cx, top - th, tw * 0.56, Math.PI, 0);
+  ctx.closePath();
+  ctx.fill();
+  // Dome slit and the telescope tube following the beam.
+  ctx.strokeStyle = "#0d0f22";
+  ctx.lineWidth = Math.max(1, 6 * s);
+  ctx.beginPath();
+  ctx.moveTo(cx, top - th);
+  ctx.lineTo(cx + Math.cos(sweep) * tw * 0.56, top - th + Math.sin(sweep) * tw * 0.56);
+  ctx.stroke();
+  ctx.strokeStyle = "#c9d4ff";
+  ctx.lineWidth = Math.max(1.5, 9 * s);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx + Math.cos(sweep) * tw * 0.3, top - th + Math.sin(sweep) * tw * 0.3);
+  ctx.lineTo(cx + Math.cos(sweep) * tw * 0.85, top - th + Math.sin(sweep) * tw * 0.85);
+  ctx.stroke();
+  ctx.lineCap = "butt";
+  // Warm windows.
+  ctx.fillStyle = `rgba(255,214,150,${0.75 + 0.25 * Math.sin(time * 2.1)})`;
+  const ww = Math.max(2, 18 * s);
+  ctx.fillRect(cx - tw * 0.3, top - th * 0.62, ww, ww * 1.4);
+  ctx.fillRect(cx + tw * 0.3 - ww, top - th * 0.62, ww, ww * 1.4);
+
+  // The constellation circling it, joined by faint lines.
+  ctx.globalCompositeOperation = "lighter";
+  ctx.strokeStyle = "rgba(200,215,255,0.22)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i < ORBIT.length; i++) {
+    const ang = ORBIT[i] + time * 0.12;
+    const sx = cx + Math.cos(ang) * R * 1.55;
+    const sy = top - R * 0.3 + Math.sin(ang) * R * 0.55;
+    if (i === 0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  for (let i = 0; i < ORBIT.length; i++) {
+    const ang = ORBIT[i] + time * 0.12;
+    const sx = cx + Math.cos(ang) * R * 1.55;
+    const sy = top - R * 0.3 + Math.sin(ang) * R * 0.55;
+    const tw2 = 0.6 + 0.4 * Math.sin(time * 3 + i * 1.7);
+    const r = Math.max(1.2, (5 + (i % 3) * 2) * s) * tw2;
+    ctx.fillStyle = "rgba(255,248,220,0.9)";
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}

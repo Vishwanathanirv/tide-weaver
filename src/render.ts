@@ -4,7 +4,7 @@ import type { Aura } from "./save";
 import { mulberry32 } from "./rng";
 import type { CalloutKind } from "./juice";
 import { Surfer } from "./surfer";
-import { abyss, birds, caustics, hazards, props, type View } from "./world";
+import { abyss, birds, caustics, hazards, observatory, props, type View } from "./world";
 
 type RGB = [number, number, number];
 
@@ -85,6 +85,14 @@ function auraColor(aura: Aura, t: number, time: number, out: RGB): RGB {
     case "lotus":
       mix("#ff6fbf", "#ffe3f2");
       break;
+    case "starlight": {
+      const tw = 0.5 + 0.5 * Math.sin(time * 5 + t * 9);
+      mix("#7fa6ff", "#fff4cf");
+      out[0] = lerp(out[0], 255, tw * 0.25);
+      out[1] = lerp(out[1], 255, tw * 0.25);
+      out[2] = lerp(out[2], 255, tw * 0.25);
+      break;
+    }
     case "prism": {
       const h = ((time * 90 + t * 300) % 360) / 60;
       const x = 1 - Math.abs((h % 2) - 1);
@@ -183,6 +191,14 @@ export interface FrameState {
   frame: number;
   /** Hazards can hurt (journey and daily, after the tips). */
   hazardsLive: boolean;
+  /** 0..1 screen-shake strength from the settings. */
+  shake: number;
+  /** Full-screen flashes (lightning, beat lifts) allowed. */
+  flashes: boolean;
+  /** The Starlight Observatory in world space, and how far it has faded in (0 = not here). */
+  obsX: number;
+  obsY: number;
+  obsA: number;
 }
 
 export class Renderer {
@@ -399,8 +415,8 @@ export class Renderer {
     const wt = f.weights;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    if (this.shake > 0 && !f.reducedMotion) {
-      const a = this.shake * 6;
+    if (this.shake > 0 && !f.reducedMotion && f.shake > 0) {
+      const a = this.shake * 6 * f.shake;
       ctx.translate((Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
     }
     this.shake = Math.max(0, this.shake - f.dt * 3);
@@ -412,6 +428,7 @@ export class Renderer {
     this.view.h = h;
     this.view.scale = this.scale;
     birds(this.view, f.time, wt[3] + wt[4] > 0.5);
+    if (f.obsA > 0) observatory(this.view, f.obsX, f.obsY, f.time, f.obsA);
     this.bestMarker(f);
     this.ringsLayer(f);
     this.seaLayer(f, wt);
@@ -443,7 +460,7 @@ export class Renderer {
       ctx.fillRect(-20, -20, w + 40, h + 40);
     }
     // A soft lift of light on every beat, stronger when the music is locked in.
-    if (!f.reducedMotion) {
+    if (!f.reducedMotion && f.flashes) {
       const ph = (f.frame % 41) / 41;
       const beat = Math.max(0, 1 - ph * 5);
       if (beat > 0) {
@@ -1060,7 +1077,7 @@ export class Renderer {
       }
       ctx.stroke();
       const phase = f.time % 9.7;
-      if (phase < 0.18 && !f.reducedMotion) {
+      if (phase < 0.18 && !f.reducedMotion && f.flashes) {
         ctx.fillStyle = `rgba(240,244,255,${(0.18 - phase) * 1.6 * wt[INK]})`;
         ctx.fillRect(0, 0, w, h);
       }

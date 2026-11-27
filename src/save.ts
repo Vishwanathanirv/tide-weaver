@@ -3,7 +3,7 @@
  * half-written slot falls back to the other, and progress travels between devices or builds as a
  * copyable save code.
  */
-export const AURAS = ["ember", "tide", "moth", "comet", "lotus", "prism"] as const;
+export const AURAS = ["ember", "tide", "moth", "comet", "lotus", "prism", "starlight"] as const;
 export type Aura = (typeof AURAS)[number];
 
 export interface Stats {
@@ -32,6 +32,10 @@ export interface SaveData {
   musicVolume: number;
   notesVolume: number;
   lightParticles: boolean;
+  /** 0..1: how hard impacts shake the screen. */
+  shake: number;
+  /** Lightning, beat lifts and other full-screen flashes. */
+  flashes: boolean;
 }
 
 export interface KV {
@@ -60,6 +64,8 @@ export function defaults(): SaveData {
     musicVolume: 0.8,
     notesVolume: 0.9,
     lightParticles: false,
+    shake: 1,
+    flashes: true,
   };
 }
 
@@ -108,6 +114,8 @@ export function sanitize(raw: unknown): SaveData {
     musicVolume: Math.min(1, num(r.musicVolume, d.musicVolume)),
     notesVolume: Math.min(1, num(r.notesVolume, d.notesVolume)),
     lightParticles: r.lightParticles === true,
+    shake: Math.min(1, num(r.shake, d.shake)),
+    flashes: r.flashes !== false,
     daily: daily && typeof daily.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(daily.day) ? { day: daily.day, best: num(daily.best, 0) } : null,
   };
 }

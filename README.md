@@ -52,6 +52,10 @@ Zen mode keeps every biome but nothing can hurt you.
 - **A living sea:** ripples on the surface, moon and sun reflections, glowing plankton below, fireflies above and the odd shooting star.
 - **Four shores, four instruments:** Harp Shallows, Glass Reef, Reed Marsh and Deep Strings each play your melody differently.
 - **Six auras** and **13 milestones** unlock through play.
+- **A signature melody:** five notes that open your first ride, answer every fifth perfect dive in a streak and swell at the biggest moments.
+- **Something hidden** above the rain.
+- **Offline:** after the first visit it plays with no connection and installs to the home screen.
+- **Comfort:** screen shake slider, flashes off, calm motion and lighter particles in Settings.
 - **Kilometre markers**, a "past your best" moment, and tips on the first run that move on as you learn.
 - **Seeds and postcards:** every wave has a link that replays it, and any moment can be saved as an image.
 

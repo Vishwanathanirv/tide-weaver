@@ -15,6 +15,19 @@ const CHORDS = [
 ];
 const GRID = 60 / 88 / 2;
 
+/**
+ * The Tide-Weaver motif: five notes that rise to the crest and settle (F#4 A4 D5 B4 A4).
+ * Scale degrees and eighth-note offsets. It opens the first ride, answers every fifth perfect dive
+ * in a streak, and swells for the big moments.
+ */
+export const MOTIF: readonly (readonly [number, number])[] = [
+  [7, 0],
+  [8, 1],
+  [10, 2],
+  [9, 4],
+  [8, 6],
+];
+
 export const INSTRUMENTS = ["harp", "glass", "reed", "strings"] as const;
 
 const hz = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
@@ -230,12 +243,19 @@ export class Score {
   }
 
   note(degree: number, instrument: number, velocity = 1, later = 0): void {
-    // The song is kept even when sound is off, so every run has a share card.
-    this.song.push(Math.max(0, Math.min(14, Math.round(degree))));
-    if (this.song.length > 32) this.song.shift();
+    this.remember(degree);
     const ctx = this.ctx;
     if (!ctx || ctx.state !== "running") return;
-    const when = this.nextSlot() + later * GRID;
+    this.play(degree, instrument, velocity, this.nextSlot() + later * GRID);
+  }
+
+  /** The song is kept even when sound is off, so every run has a share card. */
+  private remember(degree: number): void {
+    this.song.push(Math.max(0, Math.min(14, Math.round(degree))));
+    if (this.song.length > 32) this.song.shift();
+  }
+
+  private play(degree: number, instrument: number, velocity: number, when: number): void {
     const midi = degreeToMidi(degree);
     const v = 0.22 * velocity;
     const f = hz(midi);
@@ -369,6 +389,24 @@ export class Score {
     this.note(9, 1, 0.75);
     this.note(12, 1, 0.65, 1);
     this.note(14, 1, 0.55, 2);
+  }
+
+  /**
+   * Plays the motif. A whisper is soft and on the shore's instrument; a swell rings it on glass bells,
+   * doubled an octave down on the harp, over a low root.
+   */
+  motif(instrument: number, swell = false): void {
+    for (const [d] of MOTIF) this.remember(d);
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running") return;
+    // One downbeat for the whole phrase, so the rhythm holds however busy the grid is.
+    const base = this.nextSlot();
+    const v = swell ? 0.85 : 0.42;
+    for (const [d, at] of MOTIF) {
+      this.play(d, swell ? 1 : instrument, v, base + at * GRID);
+      if (swell) this.play(d - 5, 0, v * 0.5, base + at * GRID);
+    }
+    if (swell) this.play(0, 3, 0.7, base);
   }
 
   /** The light going out: a short falling phrase. */
