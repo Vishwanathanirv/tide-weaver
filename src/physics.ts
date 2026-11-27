@@ -147,9 +147,9 @@ export function surge(s: Spirit): boolean {
   return true;
 }
 
-export function makeSpirit(terrain: Terrain, dive = DIVE, flip = FLIP_RATE, reach = 1, pull = 1, cool = SURGE_COOLDOWN): Spirit {
+export function makeSpirit(terrain: Terrain, dive = DIVE, flip = FLIP_RATE, reach = 1, pull = 1, cool = SURGE_COOLDOWN, start = 440): Spirit {
   const y = terrain.height(0) + 220;
-  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach, pull, cool, coyote: 0, rail: null, railCd: 0, whirl: null, whirlT: 0, whirlSpeed: 0, whirlCd: 0, bless: 0, chainId: -1, chainN: 0 };
+  return { x: 0, y, vx: start, vy: 0, px: 0, py: y, grounded: false, under: false, speed: start, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach, pull, cool, coyote: 0, rail: null, railCd: 0, whirl: null, whirlT: 0, whirlSpeed: 0, whirlCd: 0, bless: 0, chainId: -1, chainN: 0 };
 }
 
 export function makeEvents(): StepEvents {

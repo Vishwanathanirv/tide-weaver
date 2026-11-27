@@ -9,7 +9,7 @@ import { makeEvents, makeSpirit, step, surge, STEP, type Spirit, type StepEvents
 import { Terrain } from "./terrain";
 
 // Bumped whenever the physics changes: an old link would replay differently.
-const VERSION = 5;
+const VERSION = 6;
 export const MAX_EVENTS = 1500;
 
 export const DOWN = 0;
@@ -26,6 +26,8 @@ export interface Ghost {
   /** Tide Magnet and Surge Core levels the run was recorded with (0..5). */
   magnet: number;
   core: number;
+  /** Start Boost level (0..5). */
+  boost: number;
   /** The recorded run's final flow, shown to the racer. */
   score: number;
   /** Physics step at which the recorded run ended. */
@@ -118,7 +120,7 @@ const unb64 = (code: string): Uint8Array => {
 const BOARD_INDEX = BOARD_IDS;
 
 export function encode(g: Ghost): string {
-  const out: number[] = [VERSION, (g.hazards ? 1 : 0) | (Math.max(0, BOARD_INDEX.indexOf(g.board)) << 1), clampLevel(g.magnet) | (clampLevel(g.core) << 3)];
+  const out: number[] = [VERSION, (g.hazards ? 1 : 0) | (Math.max(0, BOARD_INDEX.indexOf(g.board)) << 1), clampLevel(g.magnet) | (clampLevel(g.core) << 3), clampLevel(g.boost)];
   writeVar(out, g.seed >>> 0);
   writeVar(out, g.score);
   writeVar(out, g.end);
@@ -140,7 +142,9 @@ export function decode(code: string): Ghost | null {
     const flags = bytes[1];
     const up = bytes[2];
     if (up === undefined || (up & 7) > 5 || up >> 3 > 5) return null;
-    const at = { i: 3 };
+    const boost = bytes[3];
+    if (boost === undefined || boost > 5) return null;
+    const at = { i: 4 };
     const seed = readVar(bytes, at);
     if (seed > 0xffffffff) return null;
     const score = readVar(bytes, at);
@@ -159,7 +163,7 @@ export function decode(code: string): Ghost | null {
       kinds.push(kind as Kind);
     }
     if (at.i !== bytes.length) return null;
-    return { seed, hazards: (flags & 1) === 1, board: BOARD_INDEX[flags >> 1] ?? "wake", magnet: up & 7, core: up >> 3, score, end, frames, kinds };
+    return { seed, hazards: (flags & 1) === 1, board: BOARD_INDEX[flags >> 1] ?? "wake", magnet: up & 7, core: up >> 3, boost, score, end, frames, kinds };
   } catch {
     return null;
   }
@@ -181,7 +185,7 @@ export class Replay {
   ) {
     this.terrain = new Terrain(seed);
     const b = boardOf(ghost.board);
-    this.spirit = makeSpirit(this.terrain, b.dive, b.flip, b.reach, pullOf(ghost.magnet), surgeCoolOf(ghost.core));
+    this.spirit = makeSpirit(this.terrain, b.dive, b.flip, b.reach, pullOf(ghost.magnet), surgeCoolOf(ghost.core), 440 + 30 * ghost.boost);
   }
 
   /** Steps the ghost until it has taken `frames` physics steps in total. */

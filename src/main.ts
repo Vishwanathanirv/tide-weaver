@@ -11,7 +11,7 @@ import { ECLIPSE_FROM, ECLIPSE_TO, eclipseK, lagoonFog, stormK } from "./events"
 import { TIDE_AT, tideState, tideX } from "./tide";
 import { LoFi } from "./lofi";
 import { Juice } from "./juice";
-import { BOARDS, MAX_LEVEL, SCARVES, UPGRADES, boardOf, drainOf, pullOf, scarfOf, surgeCoolOf, surgeCostOf } from "./gear";
+import { BOARDS, MAX_LEVEL, SCARVES, SKINS, UPGRADES, boardOf, drainOf, pullOf, scarfOf, startSpeedOf, surgeCoolOf, surgeCostOf } from "./gear";
 import { GEMS_PER_GOAL, GEMS_PER_RANK, allDone, check, deal, emptyCounters, questText, type Counters } from "./quests";
 import { Rival } from "./rival";
 import { Recorder, Replay, decode, encode, type Ghost } from "./ghost";
@@ -139,6 +139,7 @@ ui.innerHTML = `
     <button data-pill="zen">Zen</button>
     <button data-pill="goals">Goals</button>
     <button data-pill="workshop">Workshop</button>
+    <button data-pill="chest" id="chestpill" hidden>Daily chest</button>
   </nav>
   <div class="scrim" id="scrim" hidden>
     <section class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title"></section>
@@ -244,7 +245,10 @@ function buzz(p: number | number[]): void {
 /** Consecutive rings and clean landings; resets on a flat slam or a wipe-out. */
 let pitchChain = 0;
 const rec = new Recorder();
-let runUp = { magnet: 0, core: 0 };
+let runUp = { magnet: 0, core: 0, boost: 0 };
+/** Second Wind: one paid revive per run. */
+const WIND_COST = 25;
+let usedWind = false;
 let recValid = false;
 let runBoard = save.board;
 let runSeed = 0;
@@ -321,8 +325,9 @@ function newRun(retry = false): void {
   const board = boardOf(save.board);
   runBoard = board.id;
   boardFx = board.fx;
-  spirit = makeSpirit(terrain, board.dive, board.flip, board.reach, pullOf(save.up.magnet), surgeCoolOf(save.up.core));
-  runUp = { magnet: save.up.magnet, core: save.up.core };
+  spirit = makeSpirit(terrain, board.dive, board.flip, board.reach, pullOf(save.up.magnet), surgeCoolOf(save.up.core), startSpeedOf(save.up.boost));
+  runUp = { magnet: save.up.magnet, core: save.up.core, boost: save.up.boost };
+  usedWind = false;
   pitchChain = 0;
   if (import.meta.env.DEV && params.get("km")) {
     // Dev only: start further out to inspect later biomes.
@@ -405,6 +410,8 @@ function persist(): void {
 // ---------------------------------------------------------------- input
 
 const pointers = new Set<number>();
+const swipe = new Map<number, { y: number; t: number }>();
+let lastTapAt = 0;
 const keys = new Set<string>();
 const SURGE_KEYS = new Set(["ShiftLeft", "ShiftRight", "KeyX", "KeyE", "ArrowRight"]);
 const HOLD_KEYS = new Set(["Space", "ArrowDown", "KeyS", "KeyW", "ArrowUp", "Enter"]);
@@ -551,14 +558,30 @@ canvas.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     return;
   }
+  const nowMs = performance.now();
+  if (started && e.pointerType === "touch" && nowMs - lastTapAt < 280) {
+    surgeNow();
+    lastTapAt = 0;
+  } else lastTapAt = nowMs;
+  swipe.set(e.pointerId, { y: e.clientY, t: nowMs });
   started = true;
   pointers.add(e.pointerId);
   canvas.setPointerCapture?.(e.pointerId);
   e.preventDefault();
 });
+// One-thumb Surge: flick upward, or tap twice quickly.
+canvas.addEventListener("pointermove", (e) => {
+  const s = swipe.get(e.pointerId);
+  if (!s || paused) return;
+  if (s.y - e.clientY > 70 && performance.now() - s.t < 450) {
+    swipe.delete(e.pointerId);
+    surgeNow();
+  }
+});
 const release = (e: PointerEvent) => {
   if (e.pointerType === "mouse" && e.button === 2) return;
   pointers.delete(e.pointerId);
+  swipe.delete(e.pointerId);
   // iOS only lets sound start from a finger lifting, not from one going down.
   if (e.pointerType === "touch") wake();
 };
@@ -646,6 +669,10 @@ function resume(): void {
 
 const fmt = (n: number) => Math.floor(n).toLocaleString("en");
 const SONG = "▁▂▃▄▅▆▇█";
+const endsStrip = (): string => {
+  const m = Math.max(1, ...save.ends);
+  return save.ends.map((n) => SONG[Math.min(7, Math.ceil((n / m) * 7))]).join("");
+};
 const songStrip = () => score.song.map((d) => SONG[Math.min(7, Math.floor((d / 15) * 8))]).join("") || "▁";
 const modeName = () => (mode === "daily" ? `Today's wave · ${today}` : mode === "zen" ? `Zen · wave ${seedLabel}` : `Journey · wave ${seedLabel}`);
 
@@ -660,7 +687,7 @@ function ghostCode(): string | null {
   if (!recValid || rec.length === 0) return null;
   let end = endFrame >= 0 ? endFrame : spirit.frames;
   if (rec.full) end = Math.min(end, rec.lastFrame + 120);
-  return encode({ seed: runSeed, hazards: mode !== "zen", board: runBoard, magnet: runUp.magnet, core: runUp.core, score: Math.floor(run.score), end, frames: rec.frames, kinds: rec.kinds });
+  return encode({ seed: runSeed, hazards: mode !== "zen", board: runBoard, magnet: runUp.magnet, core: runUp.core, boost: runUp.boost, score: Math.floor(run.score), end, frames: rec.frames, kinds: rec.kinds });
 }
 
 /** The link includes the ghost, so whoever opens it races this run. */
@@ -817,9 +844,9 @@ function openGoals(): void {
   `);
 }
 
-function gearCard(kind: "board" | "scarf", id: string, name: string, note: string, price: number): string {
+function gearCard(kind: "board" | "scarf" | "skin", id: string, name: string, note: string, price: number): string {
   const owned = save.owned.includes(id);
-  const worn = (kind === "board" ? save.board : save.scarf) === id;
+  const worn = (kind === "board" ? save.board : kind === "skin" ? save.skin : save.scarf) === id;
   const status = worn ? "Wearing" : owned ? "Wear" : `${price} gems`;
   const can = owned || save.bank >= price;
   return `<button class="aura ${worn ? "on" : ""}" data-gear="${kind}:${id}" aria-pressed="${worn}" ${can ? "" : "data-poor"}><i class="swatch sw-${kind}" aria-hidden="true"></i><b>${name}</b><span>${note} · ${status}</span></button>`;
@@ -842,6 +869,8 @@ function openWorkshop(): void {
     <div class="auras">${UPGRADES.map(upgradeCard).join("")}</div>
     <h3>Boards</h3>
     <div class="auras">${BOARDS.map((b) => gearCard("board", b.id, b.name, b.note, b.price)).join("")}</div>
+    <h3>Riders</h3>
+    <div class="auras">${SKINS.map((s) => gearCard("skin", s.id, s.name, s.note, s.price)).join("")}</div>
     <h3>Scarves</h3>
     <div class="auras">${SCARVES.map((s) => gearCard("scarf", s.id, s.name, s.note, s.price)).join("")}</div>
     <p class="small">A new board is used from the next ride.</p>
@@ -865,6 +894,9 @@ function openSettings(): void {
       <button data-act="sky">Sky: ${save.sky < 0 ? "changing" : STYLES[save.sky]}</button>
       <button data-act="tips">Show tips again</button>
     </div>
+    <h3>Where your runs end</h3>
+    <p class="song" aria-label="Runs ended per 250 m">${endsStrip()}</p>
+    <p class="small">Each bar is 250 m, left to right. Stays on this device.</p>
     <label class="slider">Screen shake <input type="range" id="shake" min="0" max="100" value="${Math.round(save.shake * 100)}"></label>
     ${clipsSupported() ? `<div class="row"><button data-act="clips" aria-pressed="${save.clips}">Clip recorder ${save.clips ? "on" : "off"} · C saves the last 10 s</button></div>` : ""}
     <h3>Progress</h3>
@@ -932,6 +964,7 @@ function openGameOver(): void {
     <p class="song" aria-label="Your run as notes">${songStrip()}</p>
     <div class="row">
       <button class="primary big" data-act="again" data-autofocus>Ride again <kbd>Space</kbd></button>
+      ${!usedWind && mode !== "zen" ? `<button data-act="wind" ${save.bank >= WIND_COST ? "" : "data-poor"}>Second Wind · ${WIND_COST} gems</button>` : ""}
       <button data-act="share">Challenge a friend</button>
       <button data-act="postcard">Postcard</button>
     </div>
@@ -943,6 +976,32 @@ function openGameOver(): void {
       <button data-act="auras">Auras & milestones</button>
     </div>
   `);
+}
+
+/** Pays gems to continue a run whose light faded, once per run. The run can no longer be shared as a ghost. */
+function secondWind(): void {
+  if (usedWind || !over || mode === "zen") return;
+  if (save.bank < WIND_COST) {
+    toast(`${WIND_COST - save.bank} more gems needed`);
+    return;
+  }
+  save.bank -= WIND_COST;
+  usedWind = true;
+  persist();
+  run.ended = false;
+  run.cause = "";
+  run.light = 0.55;
+  run.roughRecent = 0;
+  run.slowRecent = 0;
+  over = false;
+  ending = -1;
+  endFrame = -1;
+  recValid = false;
+  idle = 0;
+  spirit.speed = Math.max(spirit.speed, 600);
+  renderer.fx.burst(spirit.x, spirit.y, 40, 520, [255, 226, 140], 0, 1);
+  renderer.callout("second wind", "clean", spirit.x, spirit.y + 60, true);
+  resume();
 }
 
 function rideAgain(): void {
@@ -984,7 +1043,7 @@ panel.addEventListener("click", async (e) => {
   const gear = t.dataset.gear;
   if (gear) {
     const [kind, id] = gear.split(":");
-    const item = kind === "board" ? BOARDS.find((b) => b.id === id) : SCARVES.find((s) => s.id === id);
+    const item = kind === "board" ? BOARDS.find((b) => b.id === id) : kind === "skin" ? SKINS.find((s) => s.id === id) : SCARVES.find((s) => s.id === id);
     if (item) {
       if (!save.owned.includes(id)) {
         if (save.bank < item.price) {
@@ -995,6 +1054,7 @@ panel.addEventListener("click", async (e) => {
         save.owned.push(id);
       }
       if (kind === "board") save.board = id;
+      else if (kind === "skin") save.skin = id;
       else save.scarf = id;
       applyGear();
       persist();
@@ -1015,6 +1075,9 @@ panel.addEventListener("click", async (e) => {
       break;
     case "again":
       rideAgain();
+      break;
+    case "wind":
+      secondWind();
       break;
     case "zen":
       switchMode("zen");
@@ -1152,6 +1215,8 @@ clipBtn.addEventListener("click", () => void saveClip());
 const pills = $("pills");
 /** The mode pills on the title: the current mode is lit. */
 function syncPills(): void {
+  const chest = document.getElementById("chestpill");
+  if (chest) chest.hidden = save.chest === today;
   for (const b of pills.querySelectorAll<HTMLButtonElement>("button[data-pill]")) b.classList.toggle("on", b.dataset.pill === mode);
 }
 pills.addEventListener("click", (e) => {
@@ -1160,6 +1225,17 @@ pills.addEventListener("click", (e) => {
   if (!p) return;
   // A tap on the title is the first gesture the browser will take: let the music begin under the name.
   if (titleOn && !started) wake();
+  if (p === "chest") {
+    if (save.chest !== today) {
+      const gems = 10 + (hashString("chest:" + today) % 16);
+      save.bank += gems;
+      save.chest = today;
+      persist();
+      toast(`Daily chest · +${gems} gems`);
+      syncPills();
+    }
+    return;
+  }
   if (p === "goals") openGoals();
   else if (p === "workshop") openWorkshop();
   else if (p === "journey" || p === "zen" || p === "daily") {
@@ -1437,6 +1513,7 @@ function tick(dt: number): void {
     if (ev.thread) counters.thread++;
     if (spirit.surge > 0) counters.surgeRing += ev.ring;
     renderer.shardRing(ev.ringX, ev.ringY);
+    renderer.shock(ev.ringX, ev.ringY);
   }
   if (ev.gem) {
     counters.gem += ev.gem;
@@ -1496,6 +1573,7 @@ function tick(dt: number): void {
     save.stats.perfects++;
     if (spirit.combo > save.stats.bestStreak) save.stats.bestStreak = spirit.combo;
     renderer.fx.burst(spirit.x, spirit.y, 26 + Math.min(20, spirit.combo * 2), 420, [255, 236, 190], 0, 0.9);
+    renderer.fx.burst(spirit.x, ground + 6, 22, 340, [255, 255, 255], 0, 0.7);
     renderer.pulse(spirit.x, ground, 0.55 + Math.min(0.6, spirit.combo * 0.08));
     renderer.popup(spirit.combo > 1 ? `Perfect ×${spirit.combo}` : "Perfect", spirit.x, spirit.y);
     renderer.kick(0.2 + Math.min(0.2, spirit.combo * 0.02));
@@ -1503,6 +1581,7 @@ function tick(dt: number): void {
     renderer.punchIn(0.025 + Math.min(0.03, spirit.combo * 0.005));
     unlockAuras();
   } else if (ev.landing === "good") {
+    renderer.fx.burst(spirit.x, ground + 6, 16, 300, [255, 255, 255], 0, 0.6);
     score.chain(pitchChain++, zone, 0.6);
     buzz(20);
   } else if (ev.landing === "rough") {
@@ -1607,12 +1686,20 @@ function tick(dt: number): void {
     clipMoment();
     // A razor-thin move leaves a golden afterimage and a bright chord.
     renderer.afterimage();
+    if (call.kind === "inches") {
+      run.score += 100 * run.mult;
+      renderer.popup("CLOSE! +100", spirit.x + 30, spirit.y + 40, true);
+      renderer.fx.burst(spirit.x + 20, spirit.y, 18, 460, [255, 236, 170], 0, 0.5);
+      slowT = Math.max(slowT, 0.22);
+    }
     score.note(14, 1, 0.75);
     score.note(12, 1, 0.6, 1);
   }
   if (ev.thread || ev.flips >= 2) clipMoment();
   goalsDone();
   if (juice.centreHit) {
+    score.centre();
+    buzz([15, 30, 25]);
     renderer.fx.burst(ev.ringX, ev.ringY, 60, 540, [180, 255, 230], 0, 1.1);
     renderer.punchIn(0.07);
     renderer.kick(0.35);
@@ -1677,6 +1764,7 @@ function tick(dt: number): void {
 
   if (rev.ended) {
     endFrame = spirit.frames;
+    save.ends[Math.min(11, Math.floor(spirit.distance / 2500))]++;
     if (chain.length) {
       run.score += Math.round(chainPts * (1 + 0.25 * (chain.length - 1)) * run.mult);
       chain.length = 0;
@@ -1868,6 +1956,7 @@ function frame(now: number): void {
     surgeReady: started && canSurge(),
     ghost: replay && ghostFade > 0 ? ghostView : null,
     rival: rival && started && !over ? rivalView : null,
+    skin: save.skin,
     title: titleOn && !started,
     intro: introK,
     tide: tideStart >= 0 && tideA > 0.01 ? tideView : null,

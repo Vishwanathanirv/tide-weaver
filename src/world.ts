@@ -77,12 +77,15 @@ export function abyss(v: View, t: Terrain, time: number): void {
       ctx.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
       ctx.globalCompositeOperation = "source-over";
       ctx.fillStyle = "#7ff6e4";
+      ctx.strokeStyle = "rgba(4,10,30,0.7)";
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.moveTo(x, y - r);
       ctx.lineTo(x + r * (0.4 + 0.4 * spin), y);
       ctx.lineTo(x, y + r);
       ctx.lineTo(x - r * (0.4 + 0.4 * spin), y);
       ctx.closePath();
+      ctx.stroke();
       ctx.fill();
       ctx.fillStyle = "rgba(255,255,255,0.8)";
       ctx.beginPath();

@@ -61,6 +61,8 @@ Zen mode keeps every biome but nothing can hurt you.
 - **The rider is the meter:** the scarf shortens and dims as your light fades, and a shimmer runs down the board when a Surge is ready.
 - **Goals:** three goals are always active (breach, dead-centre rings, double backflips, Surges and more). Finish all three to rank up, earn gems and get a harder set.
 - **Upgrades:** three gem upgrades, Lv 1 to 5, the first for 15 to 25 gems. Light Vessel (+8% light duration per level), Tide Magnet (wider ring and gem pull, even outside Surge), Surge Core (recharge from 4.5 s toward 2.8 s, cheaper in light).
+- **Hooks:** a Daily chest on the title (10 to 25 gems, once a day), Start Boost (+30 launch speed per level), rider skins (Ronin, Kitsune, Storm Valkyrie), and Second Wind: 25 gems to continue a faded run once. Runs that use it are not shareable as ghosts.
+- **Juice:** a shockwave ring on every ring, foam bursts on clean landings, CLOSE! +100 with a brief slow-motion on near misses, a sub thump and bell on dead-centre rings, swipe up or double-tap to Surge on touch.
 - **Opening:** the first 450 m is scripted: two rings, a low sky-rail, four rings and a whirlpool, with no traps.
 - **Wonders:** meteor splash-ramps with gold shards, abyssal caverns with a crystal gem trail, a wandering rival spirit to pass for a gem, and a coyote window (let go up to 0.12 s late over a crest and you still launch).
 - **Feel:** a rising pitch chain on rings and clean landings (resets on a slam), short haptic clicks on touch devices (Settings), larger score and goals on phones.

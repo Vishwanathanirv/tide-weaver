@@ -210,6 +210,8 @@ export interface FrameState {
   /** Another player's ghost, in world space, with its fade (0..1); null when there is none. */
   ghost: { x: number; y: number; angle: number; a: number } | null;
   /** The wandering rival spirit, same shape, drawn in warm light. */
+  /** Worn rider skin id. */
+  skin?: string;
   rival?: { x: number; y: number; angle: number; a: number } | null;
   /** The title is showing (waiting for the first press), and how much of it is left (1 to 0). */
   title: boolean;
@@ -241,7 +243,11 @@ export class Renderer {
   private seaN = 0;
   private trail = new Float32Array(TRAIL_MAX * 2);
   private trailCap = 48;
-  private look: Look = { scarf: 1, surgeReady: false, surgeOn: 0, crouch: 0, lean: 0, arms: 0, flex: 0 };
+  private look: Look = { scarf: 1, surgeReady: false, surgeOn: 0, crouch: 0, lean: 0, arms: 0, flex: 0, skin: "nomad" };
+  private shockX = new Float32Array(8);
+  private shockY = new Float32Array(8);
+  private shockAge = new Float32Array(8).fill(9);
+  private shockHead = 0;
   private poseFlex = 0;
   private prevVy = 0;
   /** Foam left on the crests you carved, and ring fragments floating on the water. */
@@ -386,6 +392,32 @@ export class Renderer {
   }
 
   /** A ring you flew through breaks into arcs that fall to the water and float there. */
+  /** A bright shockwave ring that expands from a ring pickup. */
+  shock(x: number, y: number): void {
+    const i = this.shockHead;
+    this.shockHead = (i + 1) % 8;
+    this.shockX[i] = x;
+    this.shockY[i] = y;
+    this.shockAge[i] = 0;
+  }
+
+  private shockLayer(f: FrameState): void {
+    const { ctx } = this;
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 8; i++) {
+      const a = this.shockAge[i];
+      if (a >= 0.55) continue;
+      this.shockAge[i] = a + f.dt;
+      const k = a / 0.55;
+      ctx.strokeStyle = "rgba(255,244,214," + (0.9 * (1 - k) * (1 - k)).toFixed(3) + ")";
+      ctx.lineWidth = Math.max(1.5, 7 * (1 - k));
+      ctx.beginPath();
+      ctx.arc(this.sx(this.shockX[i]), this.sy(this.shockY[i]), (30 + 230 * k) * this.scale, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
   shardRing(x: number, y: number): void {
     for (let k = 0; k < 8; k++) {
       const i = this.shardHead * 6;
@@ -611,6 +643,7 @@ export class Renderer {
     this.ghostLayer(f.ghost, "170,220,255");
     this.ghostLayer(f.rival ?? null, "255,196,120");
     this.particlesLayer(f, wt);
+    this.shockLayer(f);
     this.spiritLayer(f, px, py);
     this.tideLayer(f);
     this.motes(f, wt);
@@ -1104,8 +1137,14 @@ export class Renderer {
         ctx.arc(x, y, rad, 0, Math.PI * 2);
         ctx.stroke();
         ctx.globalCompositeOperation = "source-over";
-        ctx.strokeStyle = css(accent, 0.95);
-        ctx.lineWidth = 2.5;
+        // A dark under-stroke keeps the ring readable on any sky.
+        ctx.strokeStyle = "rgba(6,4,18,0.6)";
+        ctx.lineWidth = 6.5;
+        ctx.beginPath();
+        ctx.arc(x, y, rad, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = css(accent, 1);
+        ctx.lineWidth = 3.4;
         ctx.beginPath();
         ctx.arc(x, y, rad, 0, Math.PI * 2);
         ctx.stroke();
@@ -1261,6 +1300,7 @@ export class Renderer {
     this.prevVy = s.vy;
     this.poseFlex += (clamp(ay / 1500, -1, 1) - this.poseFlex) * (1 - Math.exp(-f.dt * 10));
     this.look.flex = this.poseFlex;
+    this.look.skin = f.skin ?? "nomad";
     this.look.crouch = this.poseCrouch;
     this.look.lean = this.poseLean;
     this.look.arms = this.poseArms;

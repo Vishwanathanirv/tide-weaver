@@ -9,11 +9,11 @@ const PENTA = [0, 2, 4, 7, 9];
 const CHAIN = [0, 2, 4, 7, 9, 12, 14];
 const ROOT = 62; // D4: the melody stays in D major pentatonic, so any note fits any chord.
 const CHORDS = [
-  [50, 57, 66], // D  : twilight
-  [47, 54, 62], // Bm : moonlit
-  [45, 52, 59], // A  : aurora
-  [43, 50, 59], // G  : dawn
-  [40, 47, 55], // Em : rain
+  [50, 57, 61], // Dmaj7 : twilight
+  [47, 57, 62], // Bm7   : moonlit
+  [45, 52, 56], // Amaj7 : aurora
+  [43, 50, 54], // Gmaj7 : dawn
+  [40, 50, 55], // Em7   : rain
 ];
 const GRID = 60 / 88 / 2;
 
@@ -416,6 +416,16 @@ export class Score {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== "running") return;
     this.playMidi(ROOT + 12 + CHAIN[i], instrument, velocity * (0.85 + 0.03 * i), this.nextSlot() + later * GRID);
+  }
+
+  /** A dead-centre ring: a warm sub thump, a held breath of 30 ms, then the 5th and octave as a bell. */
+  centre(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running") return;
+    const t = ctx.currentTime;
+    this.voice("sine", hz(ROOT - 24), 0.34, 0.004, 0.45, t);
+    this.voice("sine", hz(ROOT + 19), 0.2, 0.002, 1.6, t + 0.03);
+    this.voice("sine", hz(ROOT + 24), 0.13, 0.002, 1.2, t + 0.03);
   }
 
   /** The song is kept even when sound is off, so every run has a share card. */

@@ -3,7 +3,7 @@
  * half-written slot falls back to the other, and progress travels between devices or builds as a
  * copyable save code.
  */
-import { BOARD_IDS, SCARF_IDS, clampLevel, noUpgrades, type Upgrades } from "./gear";
+import { BOARD_IDS, SCARF_IDS, SKIN_IDS, clampLevel, noUpgrades, type Upgrades } from "./gear";
 import { QUEST_IDS, deal, targetFor, type Counter, type Quest } from "./quests";
 
 export const AURAS = ["ember", "tide", "moth", "comet", "lotus", "prism", "starlight"] as const;
@@ -50,6 +50,12 @@ export interface SaveData {
   scarf: string;
   /** Gem upgrade levels. */
   up: Upgrades;
+  /** Worn rider skin. */
+  skin: string;
+  /** The day (yyyy-mm-dd) the daily chest was last opened. */
+  chest: string;
+  /** Where runs ended: counts per 250 m, the last bucket is 2.75 km and beyond. Stays on this device. */
+  ends: number[];
   /** Goal rank and the three active goals. */
   rank: number;
   quests: Quest[];
@@ -93,6 +99,9 @@ export function defaults(): SaveData {
     board: "wake",
     scarf: "plain",
     up: noUpgrades(),
+    skin: "nomad",
+    chest: "",
+    ends: new Array(12).fill(0),
     rank: 0,
     sky: -1,
     quests: deal(0),
@@ -136,7 +145,7 @@ export function sanitize(raw: unknown): SaveData {
   if (!unlocked.includes("ember")) unlocked.unshift("ember");
   const aura = isAura(r.aura) && unlocked.includes(r.aura) ? r.aura : "ember";
   const ownedRaw = Array.isArray(r.owned) ? r.owned.filter((g): g is string => typeof g === "string") : [];
-  const owned = [...new Set(["wake", "plain", ...ownedRaw.filter((g) => BOARD_IDS.includes(g) || SCARF_IDS.includes(g))])];
+  const owned = [...new Set(["wake", "plain", "nomad", ...ownedRaw.filter((g) => BOARD_IDS.includes(g) || SCARF_IDS.includes(g) || SKIN_IDS.includes(g))])];
   const upRaw = (r.up && typeof r.up === "object" ? r.up : {}) as Record<string, unknown>;
   const rank = Math.min(99, Math.floor(num(r.rank, 0)));
   const daily = r.daily && typeof r.daily === "object" ? (r.daily as Record<string, unknown>) : null;
@@ -171,7 +180,10 @@ export function sanitize(raw: unknown): SaveData {
     owned,
     board: owned.includes(String(r.board)) && BOARD_IDS.includes(String(r.board)) ? String(r.board) : "wake",
     scarf: owned.includes(String(r.scarf)) && SCARF_IDS.includes(String(r.scarf)) ? String(r.scarf) : "plain",
-    up: { vessel: clampLevel(upRaw.vessel), magnet: clampLevel(upRaw.magnet), core: clampLevel(upRaw.core) },
+    up: { vessel: clampLevel(upRaw.vessel), magnet: clampLevel(upRaw.magnet), core: clampLevel(upRaw.core), boost: clampLevel(upRaw.boost) },
+    skin: owned.includes(String(r.skin)) && SKIN_IDS.includes(String(r.skin)) ? String(r.skin) : "nomad",
+    chest: typeof r.chest === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.chest) ? r.chest : "",
+    ends: Array.from({ length: 12 }, (_, i) => (Array.isArray(r.ends) ? Math.max(0, Math.floor(num(r.ends[i], 0))) : 0)),
     rank,
     sky: typeof r.sky === "number" && Number.isInteger(r.sky) && r.sky >= -1 && r.sky <= 4 ? r.sky : -1,
     quests: cleanQuests(r.quests, rank),

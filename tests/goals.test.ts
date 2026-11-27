@@ -85,7 +85,7 @@ describe("progress in saves", () => {
 
   it("will not wear gear that is not owned or does not exist", () => {
     expect(sanitize({ board: "tempest", owned: ["wake"] }).board).toBe("wake");
-    expect(sanitize({ board: "dragon", owned: ["dragon", "anchor"] }).owned).toEqual(["wake", "plain", "anchor"]);
+    expect(sanitize({ board: "dragon", owned: ["dragon", "anchor"] }).owned).toEqual(["wake", "plain", "nomad", "anchor"]);
     expect(sanitize({ scarf: "comet" }).scarf).toBe("plain");
   });
 

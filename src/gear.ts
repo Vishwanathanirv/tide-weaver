@@ -50,11 +50,12 @@ export const scarfOf = (id: string): Scarf => SCARVES.find((s) => s.id === id) ?
 
 /** Gem upgrades, Lv 0 to MAX_LEVEL. Vessel feeds the run rules; Magnet and Core feed physics (and so ghosts). */
 export const MAX_LEVEL = 5;
-export type UpId = "vessel" | "magnet" | "core";
+export type UpId = "vessel" | "magnet" | "core" | "boost";
 export interface Upgrades {
   vessel: number;
   magnet: number;
   core: number;
+  boost: number;
 }
 export interface Upgrade {
   id: UpId;
@@ -67,8 +68,9 @@ export const UPGRADES: readonly Upgrade[] = [
   { id: "vessel", name: "Light Vessel", note: "Light drains 8% slower per level", price: [15, 30, 55, 85, 125] },
   { id: "magnet", name: "Tide Magnet", note: "Wider ring pull, a little even outside Surge", price: [20, 35, 60, 90, 130] },
   { id: "core", name: "Surge Core", note: "Faster Surge recharge, less light spent", price: [25, 40, 65, 95, 135] },
+  { id: "boost", name: "Start Boost", note: "Begin each run faster, +30 speed per level", price: [20, 35, 60, 90, 130] },
 ];
-export const noUpgrades = (): Upgrades => ({ vessel: 0, magnet: 0, core: 0 });
+export const noUpgrades = (): Upgrades => ({ vessel: 0, magnet: 0, core: 0, boost: 0 });
 export const clampLevel = (n: unknown): number => (typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.min(MAX_LEVEL, Math.floor(n))) : 0);
 /** Light drain multiplier: Lv 5 lasts 40% longer. */
 export const drainOf = (vessel: number): number => 1 / (1 + 0.08 * clampLevel(vessel));
@@ -78,3 +80,22 @@ export const pullOf = (magnet: number): number => 1 + 0.07 * clampLevel(magnet);
 export const surgeCoolOf = (core: number): number => 4.5 - 0.34 * clampLevel(core);
 /** Light a Surge costs (fraction of the bar). */
 export const surgeCostOf = (core: number): number => 0.12 * (1 - 0.16 * clampLevel(core));
+
+/** Launch speed of a run, in units per second. */
+export const startSpeedOf = (boost: number): number => 440 + 30 * clampLevel(boost);
+
+/** Rider skins: the look only, never the physics. */
+export interface Skin {
+  id: string;
+  name: string;
+  price: number;
+  note: string;
+}
+export const SKINS: readonly Skin[] = [
+  { id: "nomad", name: "Hooded Nomad", price: 0, note: "The first rider" },
+  { id: "ronin", name: "Ronin", price: 60, note: "Straw hat, crimson cloak" },
+  { id: "kitsune", name: "Kitsune", price: 80, note: "Fox ears and a brush tail" },
+  { id: "valkyrie", name: "Storm Valkyrie", price: 110, note: "Winged helm, storm-blue cloak" },
+];
+export const SKIN_IDS = SKINS.map((s) => s.id);
+export const skinOf = (id: string): Skin => SKINS.find((s) => s.id === id) ?? SKINS[0];

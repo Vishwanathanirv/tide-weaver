@@ -18,6 +18,8 @@ export interface Look {
   arms: number;
   /** -1..1 eased vertical acceleration: positive presses the knees down (troughs), negative extends them (jump apex). */
   flex: number;
+  /** Rider skin id. */
+  skin: string;
 }
 
 export class Surfer {
@@ -149,7 +151,8 @@ export class Surfer {
     const flutter = Math.sin(now * 9 + speed * 0.002) * (1.4 + 2.6 * cs) * s;
     const tailY = (shoulder + 14 - flex * 3 - cr * 2) * s + flutter;
     const mid2X = (-6 - 9 * cs) * s;
-    ctx.fillStyle = "#171226";
+    const sk = o.skin;
+    ctx.fillStyle = sk === "ronin" ? "#34121a" : sk === "kitsune" ? "#2b1a12" : sk === "valkyrie" ? "#16233d" : "#171226";
     ctx.beginPath();
     ctx.moveTo((sxn + 2.5) * s, (shoulder - 1) * s);
     ctx.quadraticCurveTo(mid2X, (shoulder - 3) * s + flutter * 0.2, tailX, tailY - 5 * s);
@@ -224,6 +227,46 @@ export class Surfer {
     ctx.lineTo((hcx - 3.4) * s, (hcy + 3.6) * s);
     ctx.closePath();
     ctx.fill();
+    // Skins: accessories over the hood.
+    if (sk === "ronin") {
+      ctx.fillStyle = "#2a1c10";
+      ctx.beginPath();
+      ctx.moveTo((hcx - 10) * s, (hcy - 0.5) * s);
+      ctx.lineTo(hcx * s, (hcy - 10) * s);
+      ctx.lineTo((hcx + 10) * s, (hcy - 0.5) * s);
+      ctx.quadraticCurveTo(hcx * s, (hcy - 3) * s, (hcx - 10) * s, (hcy - 0.5) * s);
+      ctx.fill();
+    } else if (sk === "kitsune") {
+      ctx.fillStyle = "#e9863a";
+      for (const dx of [-2.6, 3.2]) {
+        ctx.beginPath();
+        ctx.moveTo((hcx + dx - 2.6) * s, (hcy - 3.6) * s);
+        ctx.lineTo((hcx + dx + 0.4) * s, (hcy - 11) * s);
+        ctx.lineTo((hcx + dx + 3) * s, (hcy - 3.4) * s);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.moveTo(mid2X, (shoulder + 6) * s + flutter * 0.4);
+      ctx.quadraticCurveTo(tailX - 6 * s, tailY - 9 * s, tailX - 12 * s, tailY + 2 * s + flutter);
+      ctx.quadraticCurveTo(tailX - 3 * s, tailY + 7 * s, mid2X, (shoulder + 9) * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fff4e6";
+      ctx.beginPath();
+      ctx.arc(tailX - 11 * s, tailY + 2 * s + flutter, 3 * s, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (sk === "valkyrie") {
+      ctx.fillStyle = "#9fd0ff";
+      for (const dir of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo((hcx + dir * 3.8) * s, (hcy - 1) * s);
+        ctx.quadraticCurveTo((hcx + dir * 9) * s, (hcy - 8) * s, (hcx + dir * 12) * s, (hcy - 10) * s);
+        ctx.quadraticCurveTo((hcx + dir * 8) * s, (hcy - 3) * s, (hcx + dir * 4.5) * s, (hcy + 1) * s);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
     // Rim light, 2.2 px, along the top: hood, shoulder, cloak edge, board nose.
     ctx.globalCompositeOperation = "lighter";
     ctx.lineWidth = 2.2;
