@@ -79,6 +79,22 @@ export interface Cloud {
 export interface Collapse {
   x: number;
   at: number;
+  /** A meteor splash-ramp: the water heaves up instead of dropping away. */
+  up?: boolean;
+}
+
+/** A gold shard hanging over a meteor ramp; it can be caught once the meteor has landed. */
+export interface Shard {
+  x: number;
+  y: number;
+  taken: boolean;
+  m: Collapse;
+}
+
+/** A cavern in the abyss: a dark vault with a crystal trail of gems. */
+export interface Cavern {
+  x: number;
+  w: number;
 }
 
 export interface Chunk {
@@ -91,6 +107,9 @@ export interface Chunk {
   rails: Rail[];
   whirls: Whirl[];
   clouds: Cloud[];
+  meteors: Collapse[];
+  shards: Shard[];
+  caverns: Cavern[];
 }
 
 /** The Leviathan's arched back: a hump in the water at 5 km and every 5 km after, with a rune ring past the crest. */
@@ -113,6 +132,9 @@ export const GATE_HEIGHT = 300;
 const COLLAPSE_DEPTH = 120;
 const COLLAPSE_WIDTH = 180;
 const COLLAPSE_STEPS = 36;
+export const METEOR_H = 150;
+/** Steps after the strike before its shards can be caught. */
+export const METEOR_SETTLE = 30;
 
 /** The last 2 km of every kilometre from the first on: calm water, extra rings, no traps. */
 export const lagoonAt = (x: number): boolean => x >= 8000 && x % KM_UNITS >= KM_UNITS - RING_CHUNK;
@@ -209,7 +231,7 @@ export class Terrain {
     for (let i = 0; i < this.active.length; i++) {
       const c = this.active[i];
       const u = (x - c.x) / COLLAPSE_WIDTH;
-      if (u > -3 && u < 3) h -= COLLAPSE_DEPTH * this.progress(c) * Math.exp(-u * u);
+      if (u > -3 && u < 3) h -= (c.up ? -METEOR_H : COLLAPSE_DEPTH) * this.progress(c) * Math.exp(-u * u);
     }
     return h;
   }
@@ -220,7 +242,7 @@ export class Terrain {
     for (let i = 0; i < this.active.length; i++) {
       const c = this.active[i];
       const u = (x - c.x) / COLLAPSE_WIDTH;
-      if (u > -3 && u < 3) k += ((COLLAPSE_DEPTH * this.progress(c) * 2 * u) / COLLAPSE_WIDTH) * Math.exp(-u * u);
+      if (u > -3 && u < 3) k += (((c.up ? -METEOR_H : COLLAPSE_DEPTH) * this.progress(c) * 2 * u) / COLLAPSE_WIDTH) * Math.exp(-u * u);
     }
     return k;
   }
@@ -237,6 +259,14 @@ export class Terrain {
         if (col.at < 0 && x > col.x - 520) {
           col.at = this.frame;
           this.active.push(col);
+        }
+      }
+    }
+    for (let k = c; k <= c + 1; k++) {
+      for (const m of this.chunk(k).meteors) {
+        if (m.at < 0 && x > m.x - 900) {
+          m.at = this.frame;
+          this.active.push(m);
         }
       }
     }
@@ -296,7 +326,7 @@ export class Terrain {
     let ch = this.cache.get(index);
     if (ch) return ch;
     const r = mulberry32((this.seed ^ Math.imul(index + 7, 0x9e3779b1)) >>> 0);
-    ch = { rings: [], gems: [], jets: [], spikes: [], gates: [], collapses: [], rails: [], whirls: [], clouds: [] };
+    ch = { rings: [], gems: [], jets: [], spikes: [], gates: [], collapses: [], rails: [], whirls: [], clouds: [], meteors: [], shards: [], caverns: [] };
     if (index > 0) {
       const x0 = index * RING_CHUNK;
       const biome = biomeAt(x0);
@@ -363,6 +393,29 @@ export class Terrain {
         if (biome === 2 && er() < 0.55) {
           const cx = x0 + 300 + er() * 1400;
           ch.clouds.push({ x: cx, y: this.gb(cx) + 1150 + er() * 350, r: 170 + er() * 90 });
+        }
+      }
+      // Meteor splash-ramps and abyssal caverns, on their own stream again.
+      if (index >= 3 && !lagoon) {
+        const mr = mulberry32((this.seed ^ Math.imul(index + 53, 0x27d4eb2f)) >>> 0);
+        if (index % 3 === 0 && mr() < 0.8 && ch.spikes.length === 0) {
+          const mx = x0 + 700 + mr() * (RING_CHUNK - 1400);
+          const m: Collapse = { x: mx, at: -1, up: true };
+          ch.meteors.push(m);
+          for (let i = -1; i <= 1; i++) {
+            const sx = mx + i * 250;
+            const u = (sx - mx) / COLLAPSE_WIDTH;
+            ch.shards.push({ x: sx, y: this.gb(sx) + METEOR_H * Math.exp(-u * u) + 190 + (i === 0 ? 60 : 0), taken: false, m });
+          }
+        }
+        if (index % 3 === 2 && mr() < 0.7) {
+          const w = 900 + mr() * 500;
+          const cx = x0 + 150 + mr() * (RING_CHUNK - w - 300);
+          ch.caverns.push({ x: cx, w });
+          for (let i = 0; i < 7; i++) {
+            const gx = cx + 100 + (i * (w - 200)) / 6;
+            ch.gems.push({ x: gx, y: this.gb(gx) - 200 - 70 * Math.sin(i * 0.9 + 0.4), taken: false });
+          }
         }
       }
       // The Leviathan's rune ring, past the crest of its back.

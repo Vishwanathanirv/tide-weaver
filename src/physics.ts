@@ -1,4 +1,4 @@
-import { GATE_HEIGHT, RING_CHUNK, gateShut, railSlope, railY, spikeUp, type Rail, type Terrain, type Whirl } from "./terrain";
+import { GATE_HEIGHT, METEOR_SETTLE, RING_CHUNK, gateShut, railSlope, railY, spikeUp, type Rail, type Terrain, type Whirl } from "./terrain";
 import { gravityScale } from "./events";
 
 export const G = 900;
@@ -106,6 +106,8 @@ export interface Spirit {
   /** Gem upgrades: ring pull multiplier and Surge recharge in seconds. */
   pull: number;
   cool: number;
+  /** Seconds left in which a late release still launches off a crest. */
+  coyote: number;
   /** The sky-rail being ground, and the short cooldown after leaving one. */
   rail: Rail | null;
   railCd: number;
@@ -121,6 +123,8 @@ export interface Spirit {
 }
 
 export const BLESS_TIME = 8;
+/** Grace after holding over a crest in which letting go still launches the spirit. */
+export const COYOTE = 0.12;
 const RAIL_ACCEL = 140;
 const WHIRL_TIME = 0.6;
 
@@ -145,7 +149,7 @@ export function surge(s: Spirit): boolean {
 
 export function makeSpirit(terrain: Terrain, dive = DIVE, flip = FLIP_RATE, reach = 1, pull = 1, cool = SURGE_COOLDOWN): Spirit {
   const y = terrain.height(0) + 220;
-  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach, pull, cool, rail: null, railCd: 0, whirl: null, whirlT: 0, whirlSpeed: 0, whirlCd: 0, bless: 0, chainId: -1, chainN: 0 };
+  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach, pull, cool, coyote: 0, rail: null, railCd: 0, whirl: null, whirlT: 0, whirlSpeed: 0, whirlCd: 0, bless: 0, chainId: -1, chainN: 0 };
 }
 
 export function makeEvents(): StepEvents {
@@ -295,14 +299,20 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
     const ground = t.height(nx);
     const ballistic = s.y + vy * dt - 0.5 * G * dt * dt;
     s.x = nx;
-    // Light (not holding) and the ground curves away faster than a free fall: lift off.
-    if (!holding && ballistic > ground + 1e-4) {
+    // Light (not holding) and the ground curves away faster than a free fall: lift off. Coyote
+    // window: hold over a crest and let go up to COYOTE seconds late, and you still launch.
+    const flies = ballistic > ground + 1e-4;
+    if (!holding && (flies || s.coyote > 0)) {
       s.grounded = false;
-      s.y = ballistic;
+      s.y = flies ? ballistic : ground + 1;
       s.airTime = 0;
       s.airRot = 0;
+      s.coyote = 0;
       ev.takeoff = true;
-    } else s.y = ground;
+    } else {
+      s.y = ground;
+      s.coyote = holding && flies ? COYOTE : Math.max(0, s.coyote - dt);
+    }
     return;
   }
 
@@ -515,6 +525,22 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
           s.chainN = 0;
         }
         if (r.closest < r.r * r.r * 2.6) ev.nearMiss = true;
+      }
+    }
+    if (!s.under) {
+      for (const sh of ch.shards) {
+        if (sh.taken || sh.m.at < 0 || s.frames - sh.m.at < METEOR_SETTLE) continue;
+        const gx = sh.x - s.x;
+        const gy = sh.y - s.y;
+        const gr = 58 * s.pull * (s.surge > 0 ? 1.5 : 1);
+        if (gx * gx + gy * gy < gr * gr) {
+          sh.taken = true;
+          s.gems++;
+          ev.gem++;
+          ev.gemX = sh.x;
+          ev.gemY = sh.y;
+          s.flow += 400;
+        }
       }
     }
     if (s.under) {
