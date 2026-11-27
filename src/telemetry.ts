@@ -1,11 +1,13 @@
 /**
- * Anonymous play stats, off unless a PostHog project key is set at build time (VITE_POSTHOG_KEY).
+ * Anonymous play stats, off unless a PostHog project key is set at build time (VITE_POSTHOG_KEY),
+ * and only reaching PostHog where the /ingest path exists (the Cloudflare Worker).
  * No cookies, no person profiles, no names: one random device id kept in localStorage so a funnel
  * (first run, second run, where runs end) can be counted. The player can switch it off in Settings.
  * Events are fire-and-forget; a failed send never touches the game.
  */
 const KEY = (import.meta.env.VITE_POSTHOG_KEY as string | undefined) ?? "";
-const HOST = ((import.meta.env.VITE_POSTHOG_HOST as string | undefined) ?? "https://us.i.posthog.com").replace(/\/$/, "");
+/** Stats go to the game's own /ingest path. The Cloudflare Worker (worker/index.ts) forwards them to PostHog, so blockers that target third-party hosts do not drop them. */
+const HOST = "/ingest";
 const ID_KEY = "tide-weaver.device";
 
 let enabled = true;
