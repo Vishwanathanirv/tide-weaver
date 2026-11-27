@@ -80,7 +80,8 @@ describe("ghost codes", () => {
     const ok = encode(g);
     expect(decode(ok)).toEqual(g);
     expect(decode(ok + "AA")).toBeNull();
-    expect(decode("Aw" + ok.slice(2))).toBeNull();
+    expect(decode("BA" + ok.slice(2))).toBeNull();
+    expect(decode("Ag" + ok.slice(2))).toBeNull();
     expect(decode("AQ" + ok.slice(2))).toBeNull();
   });
 

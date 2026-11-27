@@ -62,6 +62,17 @@ Zen mode keeps every biome but nothing can hurt you.
 - **Workshop:** spend abyss gems on boards that change handling (Anchor dives harder, Feather floats and flips fast) and scarves that lengthen the scarf and the light trail.
 - **Ghost races:** the Challenge link carries your whole run in a few hundred bytes. Whoever opens it races a translucent copy of you on the same wave, with the gap shown live. No server.
 - **Clips:** the last ten seconds are kept in the background. Press C, or tap the button after a big moment, to save a 9:16 video with sound, or share it straight from a phone. Off by default on touch screens; switch in Settings.
+- **Sky-rails:** shimmering aurora ribbons float high above the waves. Jump high enough to cross one and your board locks on and grinds to the end, with sparks, a little speed and some light back.
+- **Shrine gates:** chains of three torii hang in the air. Thread all three in order for a Spirit Blessing: time slows for a moment, and for 8 seconds every trap becomes a bonus gem and rings are easier to catch.
+- **Whirlpools:** surf into one and it pulls you under, spins you, and fires you out like a cannonball, faster than you went in. Fly over it to skip it.
+- **Thunderheads:** in the Obsidian Storm, dark clouds crackle high overhead. Fly into one and its updraft throws you up through the clouds, where the sea goes silent, stars appear even by day and you hear chimes and a heartbeat.
+- **The Leviathan (5 km, and every 5 km):** a sea serpent's scaled back rises as a giant ramp. Ride it and fly through its ring of runes for a big reward.
+- **The eclipse (8 km):** the moon is covered, meteors fall and gravity eases, so jumps become long moon leaps.
+- **A storm front** gathers over the last 2 km of the Mirage Straits, with sheet lightning, before the Obsidian Storm begins. Lagoons are foggy: visibility tightens and the lanterns light the way.
+- **Razor moves leave an afterimage:** dead-centre rings, razor landings and near misses leave a golden afterimage and a chord. At x3.0 your scarf paints a glowing ribbon across the sky.
+- **A rumble you can hear coming:** the tidal wave's sub-bass grows as it closes in.
+- **Boards with their own trails:** Cinder leaves embers, Rime leaves frost mist, and the Starlight aura leaves sparkles.
+- **The sea is deeper:** colossal serpent shapes glide far behind the waves, and ruined arches and fog banks pass at the edges of the frame, fading out toward the middle so they never block the view.
 - **A title that is the world:** the game opens on a live, slowly panning sea with the name floating in the sky. Press to begin and it dissolves as the camera swoops down behind the surfer, already moving.
 - **Layers:** far horizon landmarks, a slower dark sea behind the playable wave, the wave itself with rim light, foam caps on steep faces and shafts of light into the water, and dark reeds passing in front.
 - **Things that live here:** sea birds perched on crests that burst upward as you carve past, jellyfish pulsing in the deep, schools of glowing fish that dart away from your board, lanterns bobbing on the swells, tattered banners on the sea stacks, and wind streaks across the sky.

@@ -2,7 +2,7 @@
  * Three bite-sized goals are always active. Each counts something inside a single run; finish all
  * three and the rank goes up, gems are paid out and a fresh set is dealt.
  */
-export type Counter = "breach" | "perfect" | "ring" | "centre" | "flipCentre" | "gem" | "surge" | "km" | "streak" | "tier" | "thread" | "doubleFlip" | "surgeRing" | "plunge";
+export type Counter = "breach" | "perfect" | "ring" | "centre" | "flipCentre" | "gem" | "surge" | "km" | "streak" | "tier" | "thread" | "doubleFlip" | "surgeRing" | "plunge" | "rail" | "whirl" | "bless" | "storm";
 
 export interface QuestDef {
   id: Counter;
@@ -26,6 +26,10 @@ export const QUEST_DEFS: readonly QuestDef[] = [
   { id: "doubleFlip", text: (n) => (n > 1 ? `Land ${n} double backflips` : "Land a double backflip"), targets: [1, 2, 3, 4] },
   { id: "surgeRing", text: (n) => `Catch ${n} rings during Surges`, targets: [3, 5, 7, 10] },
   { id: "plunge", text: (n) => `Plunge into the abyss ${n} times`, targets: [4, 6, 8, 11] },
+  { id: "rail", text: (n) => (n > 1 ? `Grind ${n} sky-rails` : "Grind a sky-rail"), targets: [1, 2, 3, 4] },
+  { id: "whirl", text: (n) => (n > 1 ? `Ride ${n} whirlpools` : "Ride a whirlpool"), targets: [1, 2, 3, 4] },
+  { id: "bless", text: (n) => (n > 1 ? `Earn ${n} Spirit Blessings` : "Earn a Spirit Blessing"), targets: [1, 1, 2, 3] },
+  { id: "storm", text: (n) => (n > 1 ? `Ride ${n} thunderhead updrafts` : "Ride a thunderhead updraft"), targets: [1, 2, 3, 4] },
 ];
 
 export interface Quest {

@@ -35,4 +35,6 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 - The tidal wave (`tide.ts`) depends only on the physics step count and never touches physics; a run it ends is still a valid ghost. It is off in Zen and while `hazardsOn()` is false.
 - Lagoons: `lagoonAt(x)` (terrain.ts) is the last 2 km of each km; keep hazard generation behind `!lagoon`.
 - Dev-only URL params (stripped from production): `km`, `streak`, `obs`, `notips`, `tgap`; `window.__tw` for browser tests.
+- Set-pieces that touch physics are seeded terrain content (rails, shrine chains, whirlpools, thunderheads, the Leviathan's back and rune ring in `terrain.ts`) or pure functions of world x (`events.ts`: storm front, eclipse gravity, lagoon fog). They live on their own random stream (`er` in `chunk()`), so adding one never shifts existing rings, gems or traps. State they need (rail, whirl, bless, shrine chain) is on `Spirit` and replays exactly in `Replay`.
+- Local tooling note: native bundler binaries may be blocked by Application Control on some machines. Tests also run under plain Node with a vitest shim, and `tsc` output can be served by a tiny static server; CI is the source of truth for `npm test` and `npm run build`.
 - Game balance numbers live at the top of `physics.ts`. Tune them after playing.

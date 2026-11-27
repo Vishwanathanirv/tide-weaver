@@ -766,6 +766,45 @@ kbd {
   bottom: 96px;
 }
 
+/* Mode pills on the title: clean, no panel. */
+.pills {
+  position: absolute;
+  left: 50%;
+  top: 47%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 92vw;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.7s ease;
+}
+
+.titling .pills {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pills button {
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(10, 12, 30, 0.35);
+  color: var(--ink);
+  font: 600 14px var(--round);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.pills button.on {
+  background: var(--warm);
+  border-color: transparent;
+  color: #2a1a07;
+}
+
 .sw-board { background: linear-gradient(135deg, #ffd59a, #7b5cff); }
 .sw-scarf { background: linear-gradient(135deg, #6fe3ff, #ff7bd5); }
 .aura[data-poor] { opacity: 0.55; }

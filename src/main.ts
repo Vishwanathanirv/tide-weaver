@@ -6,7 +6,8 @@ import { Renderer, STYLES, STYLE_COUNT } from "./render";
 import { hashString, utcDay } from "./rng";
 import { makeRun, makeRunEvents, updateRun, TIERS, type Mode, type Run } from "./rules";
 import { AURAS, exportCode, importCode, Vault, type Aura, type KV, type SaveData, type Stats } from "./save";
-import { Terrain, ZONES, BIOMES, biomeAt, lagoonAt } from "./terrain";
+import { Terrain, ZONES, BIOMES, LEV_EVERY, biomeAt, lagoonAt } from "./terrain";
+import { ECLIPSE_FROM, ECLIPSE_TO, eclipseK, lagoonFog, stormK } from "./events";
 import { TIDE_AT, tideState, tideX } from "./tide";
 import { LoFi } from "./lofi";
 import { Juice } from "./juice";
@@ -61,6 +62,13 @@ const ACHIEVEMENTS: { id: string; name: string; need: string; test: (c: Ctx) => 
   { id: "zen", name: "Still water", need: "Ten minutes in Zen", test: (c) => c.run.mode === "zen" && c.run.time >= 600 },
   { id: "surge", name: "Burst", need: "Use a Surge", test: () => save.stats.surges > 0 },
   { id: "observatory", name: "Starlight Observatory", need: "Found above the rain", test: () => false, secret: true },
+  { id: "rail", name: "Rail rider", need: "Grind a sky-rail", test: () => counters.rail > 0 },
+  { id: "bless", name: "Blessed", need: "Thread three shrine gates in a row", test: () => counters.bless > 0 },
+  { id: "whirl", name: "Cannonball", need: "Ride a whirlpool", test: () => counters.whirl > 0 },
+  { id: "storm", name: "Above the storm", need: "Ride a thunderhead updraft", test: () => counters.storm > 0 },
+  { id: "moon", name: "Moon leap", need: "Fly through the eclipse at 8 km", test: (c) => c.s.x >= ECLIPSE_FROM && c.s.x <= ECLIPSE_TO },
+  { id: "leviathan", name: "Through the runes", need: "Thread the Leviathan's rune ring", test: () => false },
+  { id: "wave", name: "Outran the wave", need: "Escape the tidal wave at 3 km", test: () => false },
 ];
 
 /** The observatory shows itself to a spirit flying this high while the ink rain falls. */
@@ -124,6 +132,13 @@ ui.innerHTML = `
   <button class="surgebtn" id="surgebtn" aria-label="Surge" hidden>Surge</button>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <a class="tag" href="./" aria-label="coralctrl">a coralctrl game</a>
+  <nav class="pills" id="pills" aria-label="Start">
+    <button data-pill="journey">Journey</button>
+    <button data-pill="daily">Today's wave</button>
+    <button data-pill="zen">Zen</button>
+    <button data-pill="goals">Goals</button>
+    <button data-pill="workshop">Workshop</button>
+  </nav>
   <div class="scrim" id="scrim" hidden>
     <section class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title"></section>
   </div>
@@ -203,6 +218,16 @@ let tideDone = false;
 let tideA = 0;
 const tideView = { x: 0, a: 0 };
 let inLagoon = false;
+let wasStorm = false;
+/** Real seconds of slow motion left after a Spirit Blessing. */
+let slowT = 0;
+/** Seconds left of droplets streaming off the scarf after a breach. */
+let dropletT = 0;
+let boardFx: "ember" | "frost" | undefined;
+let levShown = 0;
+let inEclipse = false;
+let stormShown = false;
+let railHinted = false;
 /** Goals count things within one run. */
 let counters: Counters = emptyCounters();
 /** Everything needed to replay this run as someone else's ghost. */
@@ -262,7 +287,8 @@ function newRun(retry = false): void {
   if (allDone(save.quests)) save.quests = deal(save.rank, 3, Math.random);
   const board = boardOf(save.board);
   runBoard = board.id;
-  spirit = makeSpirit(terrain, board.dive, board.flip);
+  boardFx = board.fx;
+  spirit = makeSpirit(terrain, board.dive, board.flip, board.reach);
   if (import.meta.env.DEV && params.get("km")) {
     // Dev only: start further out to inspect later biomes.
     spirit.x = spirit.px = Number(params.get("km")) * 10000;
@@ -288,6 +314,12 @@ function newRun(retry = false): void {
   tideDone = false;
   tideA = 0;
   inLagoon = false;
+  wasStorm = false;
+  slowT = 0;
+  dropletT = 0;
+  levShown = 0;
+  inEclipse = false;
+  stormShown = false;
   replay = linkGhost && linkGhost.seed === seed ? new Replay(linkGhost, seed) : null;
   ghostFade = 1;
   if (replay && !ghostToasted) {
@@ -295,6 +327,7 @@ function newRun(retry = false): void {
     toast(`Racing a ghost · ${fmt(linkGhost!.score)} flow`);
   }
   applyGear();
+  syncPills();
   clock = 0;
   over = false;
   ending = -1;
@@ -927,7 +960,8 @@ panel.addEventListener("click", async (e) => {
       openSettings();
       break;
     case "back":
-      if (over) openGameOver();
+      if (titleOn && !started) resume();
+      else if (over) openGameOver();
       else openPause();
       break;
     case "sound":
@@ -1019,6 +1053,22 @@ function toggleSound(): void {
 
 $("b-sound").addEventListener("click", toggleSound);
 clipBtn.addEventListener("click", () => void saveClip());
+const pills = $("pills");
+/** The mode pills on the title: the current mode is lit. */
+function syncPills(): void {
+  for (const b of pills.querySelectorAll<HTMLButtonElement>("button[data-pill]")) b.classList.toggle("on", b.dataset.pill === mode);
+}
+pills.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest("button");
+  const p = b?.dataset.pill;
+  if (!p) return;
+  if (p === "goals") openGoals();
+  else if (p === "workshop") openWorkshop();
+  else if (p === "journey" || p === "zen" || p === "daily") {
+    switchMode(p);
+    syncPills();
+  }
+});
 // On a touch screen the Surge is also a button, so one thumb is enough.
 surgeBtn.addEventListener("pointerdown", (e) => {
   e.preventDefault();
@@ -1049,6 +1099,15 @@ function unlockAuras(): void {
     toast(`New aura: ${AURA_INFO[a].name}`);
     score.milestone();
   }
+}
+
+/** Gives an achievement that no per-second test covers (one-off moments). */
+function award(id: string): void {
+  if (save.achievements.includes(id)) return;
+  save.achievements.push(id);
+  persist();
+  toast(`✦ ${ACHIEVEMENTS.find((a) => a.id === id)?.name ?? id}`);
+  score.milestone();
 }
 
 function checkAchievements(): void {
@@ -1166,6 +1225,7 @@ function tideStep(): void {
   } else if (st === "escaped") {
     tideDone = true;
     save.bank += 5;
+    award("wave");
     renderer.showBanner("You outran the wave · +5 gems");
     score.motif(0, true);
     persist();
@@ -1178,6 +1238,9 @@ function tick(dt: number): void {
     // height so a replay of it starts from the same state.
     spirit.y = spirit.py = terrain.height(spirit.x) + 220;
     spirit.vy = 0;
+    // Dev only: ?vy=N launches upward at the first press; ?bless=1 starts blessed.
+    if (import.meta.env.DEV && params.get("vy")) spirit.vy = Number(params.get("vy"));
+    if (import.meta.env.DEV && params.get("bless")) spirit.bless = 8;
   }
   // Anything that changes the hazards mid-run makes the run impossible to replay exactly.
   if (tip !== -1) recValid = false;
@@ -1207,7 +1270,63 @@ function tick(dt: number): void {
 
   // Goals count what just happened; the water answers how hard you hit it.
   const sp = currentSpeed(spirit);
-  if (ev.breach) counters.breach++;
+  if (ev.breach) {
+    counters.breach++;
+    dropletT = 1.5;
+  }
+  if (ev.railOn) {
+    counters.rail++;
+    score.railOn();
+    renderer.kick(0.25);
+    renderer.callout("SKY-RAIL", "lock", spirit.x, spirit.y + 60, false);
+    clipMoment();
+  }
+  // Sparks fly off the board while it grinds.
+  if (spirit.rail && spirit.frames % 2 === 0) renderer.fx.spawn(spirit.x, spirit.y - 4, -sp * 0.18 + Math.random() * 120, (Math.random() - 0.3) * 220, 0.5, 1.7, [255, 230, 150], 0);
+  if (ev.railOff) {
+    renderer.pulse(spirit.x, ground, 0.5);
+    renderer.punchIn(0.05);
+  }
+  if (ev.shrine) {
+    score.note(10 + spirit.chainN * 2, 1, 0.8);
+    renderer.popup(spirit.chainN > 0 ? `Gate ${spirit.chainN}/3` : "Gate", spirit.x, spirit.y + 40);
+  }
+  if (ev.blessing) {
+    counters.bless++;
+    score.bless();
+    renderer.showBanner("Spirit Blessing · traps turn to gems");
+    renderer.fx.burst(spirit.x, spirit.y, 60, 520, [255, 226, 140], 0, 1.2);
+    slowT = 1.4;
+    clipMoment();
+  }
+  if (ev.whirlIn) {
+    score.whirl();
+    renderer.kick(0.2);
+  }
+  if (ev.whirlOut) {
+    counters.whirl++;
+    renderer.fx.burst(spirit.x, ground, 50, 640, [200, 240, 255], 0, 1);
+    renderer.kick(0.5);
+    renderer.punchIn(0.08);
+    renderer.callout("CANNONBALL", "lock", spirit.x, spirit.y + 60, true);
+    clipMoment();
+  }
+  if (ev.storm && !wasStorm) {
+    counters.storm++;
+    score.zap();
+    renderer.kick(0.3);
+  }
+  if (ev.storm && spirit.frames % 20 === 0) score.zap();
+  wasStorm = ev.storm;
+  if (ev.rune) {
+    score.rune();
+    renderer.showBanner("Through the runes · +2,000");
+    renderer.kick(0.8);
+    renderer.punchIn(0.1);
+    renderer.fx.burst(ev.ringX, ev.ringY, 90, 700, [255, 214, 120], 0, 1.4);
+    award("leviathan");
+    clipMoment();
+  }
   if (ev.plunge) {
     counters.plunge++;
     score.thud(0.55);
@@ -1245,6 +1364,20 @@ function tick(dt: number): void {
     }
   }
   if (spirit.grounded && sp > 500 && spirit.frames % 4 === 0) renderer.foam(spirit.x, 8 + sp / 130);
+  if (dropletT > 0) {
+    dropletT -= dt;
+    if (spirit.frames % 2 === 0) renderer.fx.spawn(spirit.x - 16, spirit.y + 8, -sp * 0.2 + Math.random() * 80, 40 + Math.random() * 110, 0.7, 1.5, [215, 240, 255], 0);
+  }
+  if (boardFx && spirit.frames % 2 === 0) {
+    if (boardFx === "ember") renderer.fx.spawn(spirit.x - 8, spirit.y, -sp * 0.12 + Math.random() * 40, 40 + Math.random() * 100, 1, 1.8, [255, 120 + ((Math.random() * 70) | 0), 40], 0);
+    else renderer.fx.spawn(spirit.x - 8, spirit.y, -sp * 0.1 + Math.random() * 50, (Math.random() - 0.5) * 60, 1.2, 2.6, [200, 235, 255], 0);
+  }
+  if (save.aura === "starlight" && spirit.frames % 3 === 0) renderer.fx.spawn(spirit.x + (Math.random() - 0.5) * 20, spirit.y + (Math.random() - 0.2) * 30, -sp * 0.08, (Math.random() - 0.5) * 50, 1.3, 1.6, [255, 246, 200], 0);
+  if (!spirit.under && alt > 2200 && spirit.frames % 45 === 0) score.chime(11 + (Math.floor(spirit.frames / 45) % 4), 0.4);
+  if (!railHinted && started && tip === -1 && !spirit.grounded && alt > 350 && counters.rail === 0 && run.time > 20) {
+    railHinted = true;
+    toast("Jump high enough to touch a sky-rail");
+  }
   // Skimming just above the water without touching it pulls up a wake of droplets and ripples.
   if (!spirit.grounded && !spirit.under && alt > 0 && alt < 55 && sp > 650 && spirit.frames % 2 === 0) {
     renderer.fx.spawn(spirit.x, ground + 4, -sp * 0.15 + Math.random() * 60, 90 + Math.random() * 130, 0.5, 1.5, [215, 240, 255], 0);
@@ -1326,6 +1459,21 @@ function tick(dt: number): void {
     inLagoon = lag;
     if (lag) renderer.showBanner("The lagoon · a breather");
   }
+  const eclipsed = eclipseK(spirit.x) > 0.5;
+  if (eclipsed !== inEclipse) {
+    inEclipse = eclipsed;
+    if (eclipsed) renderer.showBanner("The eclipse · moon leaps");
+  }
+  const lm = Math.round(spirit.x / LEV_EVERY);
+  if (lm >= 1 && lm !== levShown && spirit.x > lm * LEV_EVERY - 2800 && spirit.x < lm * LEV_EVERY) {
+    levShown = lm;
+    renderer.showBanner("The Leviathan stirs");
+    score.thud(0.8);
+  }
+  if (!stormShown && stormK(spirit.x) > 0.4) {
+    stormShown = true;
+    renderer.showBanner("A storm gathers");
+  }
   const biome = biomeAt(spirit.x);
   if (biome !== lastBiome) {
     lastBiome = biome;
@@ -1350,7 +1498,13 @@ function tick(dt: number): void {
     if (spirit.airRot >= 5.4) counters.flipCentre++;
     clipMoment();
   }
-  if (call && (call.kind === "clean" || call.kind === "inches")) clipMoment();
+  if (call && (call.kind === "clean" || call.kind === "inches")) {
+    clipMoment();
+    // A razor-thin move leaves a golden afterimage and a bright chord.
+    renderer.afterimage();
+    score.note(14, 1, 0.75);
+    score.note(12, 1, 0.6, 1);
+  }
   if (ev.thread || ev.flips >= 2) clipMoment();
   goalsDone();
   if (juice.centreHit) {
@@ -1481,7 +1635,8 @@ function frame(now: number): void {
     if (started && !holding()) idle += dt;
     else idle = 0;
     const simDt = juice.consume(dt);
-    acc += started && respawn < 0 ? simDt * scaleT : 0;
+    slowT = Math.max(0, slowT - dt);
+    acc += started && respawn < 0 ? simDt * scaleT * (slowT > 0 ? 0.45 : 1) : 0;
     while (acc >= STEP && !paused) {
       tick(STEP);
       acc -= STEP;
@@ -1516,6 +1671,10 @@ function frame(now: number): void {
   const speed = currentSpeed(spirit);
   const gAlt = spirit.y - terrain.height(spirit.x);
   score.update(paused ? 0 : speed, style, weights[4], !spirit.grounded, spirit.under ? 0 : Math.min(1, Math.max(0, gAlt) / 2200), spirit.under ? Math.min(1, Math.max(0, -gAlt) / 420) : 0);
+  score.setStrato(spirit.under ? 0 : Math.min(1, Math.max(0, gAlt - 2200) / 900));
+  const tideGap = tideStart >= 0 && !tideDone ? spirit.x - tideX(spirit.frames - tideStart, tideBase) : Infinity;
+  score.setRumble(Number.isFinite(tideGap) && !paused && !over ? Math.min(1, Math.max(0, 1 - tideGap / 3000)) : 0);
+  score.setGrind(!!spirit.rail && !paused && !over, speed / 2600);
   if (started && titleOn) titleOn = false;
   introK += ((titleOn && !started ? 1 : 0) - introK) * (1 - Math.exp(-dt * (titleOn && !started ? 4 : 2.4)));
   if (titling !== introK > 0.05) {
@@ -1577,6 +1736,10 @@ function frame(now: number): void {
     title: titleOn && !started,
     intro: introK,
     tide: tideStart >= 0 && tideA > 0.01 ? tideView : null,
+    eclipse: eclipseK(spirit.x),
+    storm: stormK(spirit.x),
+    fog: lagoonFog(spirit.x),
+    ribbon: started && !paused && !over && lofi.locked,
   });
   if (clips.active) drawClip();
   if (hudFrame++ % 6 === 0) {

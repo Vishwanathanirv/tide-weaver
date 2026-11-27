@@ -7,7 +7,9 @@
 const WINDOW = 10000;
 const MIN = 1500;
 
-const TYPES = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
+// Chrome and Firefox record WebM. Safari records MP4 (H.264 and AAC), and newer Safari also WebM,
+// so the list names MP4 with codecs first for Safari and the plain forms as a fallback.
+const TYPES = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1", "video/webm", "video/mp4"];
 
 export interface Clip {
   blob: Blob;

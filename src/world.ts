@@ -1,4 +1,4 @@
-import { GATE_HEIGHT, RING_CHUNK, gateShut, lagoonAt, spikeUp, BEAT_STEPS, type Terrain } from "./terrain";
+import { GATE_HEIGHT, LEV_EVERY, RING_CHUNK, WHIRL_R, gateShut, lagoonAt, railY, spikeUp, BEAT_STEPS, type Rail, type Terrain } from "./terrain";
 
 /** What the world layer needs from the camera. */
 export interface View {
@@ -96,7 +96,28 @@ export function abyss(v: View, t: Terrain, time: number): void {
 }
 
 /** Obsidian Storm hazards: crystal spikes that rise on the beat and tide gates that slam shut. */
-export function hazards(v: View, t: Terrain, frame: number, live: boolean): void {
+/** A golden bonus gem: what a trap becomes under a Spirit Blessing. */
+function blessGem(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, time: number): void {
+  const r = 12 * s;
+  ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r * 2.6);
+  g.addColorStop(0, "rgba(255,220,130,0.55)");
+  g.addColorStop(1, "rgba(255,200,90,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(x - r * 2.6, y - r * 2.6, r * 5.2, r * 5.2);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "rgb(255,226,140)";
+  const k = 0.7 + 0.3 * Math.sin(time * 5 + x);
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.lineTo(x + r * 0.7 * k, y);
+  ctx.lineTo(x, y + r);
+  ctx.lineTo(x - r * 0.7 * k, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+export function hazards(v: View, t: Terrain, frame: number, live: boolean, bless = 0): void {
   const { ctx } = v;
   const a = live ? 1 : 0.35;
   chunks(v, (c) => {
@@ -104,6 +125,10 @@ export function hazards(v: View, t: Terrain, frame: number, live: boolean): void
     for (const sp of ch.spikes) {
       const x = v.sx(sp.x);
       if (x < -40 || x > v.w + 40) continue;
+      if (bless > 0) {
+        if (!sp.taken) blessGem(ctx, x, v.sy(t.height(sp.x)) - 22 * v.scale, Math.max(0.6, v.scale), frame / 60);
+        continue;
+      }
       const base = v.sy(t.height(sp.x));
       const phase = ((frame + sp.phase) % BEAT_STEPS) / BEAT_STEPS;
       const up = spikeUp(sp, frame);
@@ -129,6 +154,10 @@ export function hazards(v: View, t: Terrain, frame: number, live: boolean): void
     for (const g of ch.gates) {
       const x = v.sx(g.x);
       if (x < -40 || x > v.w + 40) continue;
+      if (bless > 0) {
+        if (!g.taken) blessGem(ctx, x, v.sy(t.height(g.x) + GATE_HEIGHT * 0.4), Math.max(0.6, v.scale), frame / 60);
+        continue;
+      }
       const base = v.sy(t.height(g.x));
       const top = v.sy(t.height(g.x) + GATE_HEIGHT);
       const shut = gateShut(g, frame);
@@ -864,5 +893,366 @@ export function life(v: View, t: Terrain, spiritX: number, spiritY: number, time
         ctx.fillRect(sx - 5 * s, sy - 2 * s, 10 * s, 2 * s);
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------- set-pieces
+
+const RAIL_BANDS = [
+  [18, 0.1],
+  [7, 0.3],
+  [2.4, 0.9],
+] as const;
+
+/** Sky-rails: shimmering aurora ribbons high above the waves. The one being ground burns brighter. */
+export function rails(v: View, t: Terrain, time: number, active: Rail | null): void {
+  const { ctx } = v;
+  const s = Math.max(0.6, v.scale);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  chunks(v, (c) => {
+    for (const r of t.chunk(c).rails) {
+      const x0 = v.sx(r.x0);
+      const x1 = v.sx(r.x1);
+      if (x1 < -60 || x0 > v.w + 60) continue;
+      const on = r === active;
+      const n = Math.max(10, Math.ceil((r.x1 - r.x0) / 45));
+      const g = ctx.createLinearGradient(x0, 0, x1, 0);
+      g.addColorStop(0, "rgb(120,255,205)");
+      g.addColorStop(0.5, "rgb(170,160,255)");
+      g.addColorStop(1, "rgb(110,220,255)");
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = g;
+      const shimmer = 0.85 + 0.15 * Math.sin(time * 2.4 + r.x0 * 0.01);
+      for (const [lw, a] of RAIL_BANDS) {
+        ctx.globalAlpha = Math.min(1, a * (on ? 1.5 : 1) * shimmer);
+        ctx.lineWidth = lw * s;
+        ctx.beginPath();
+        for (let i = 0; i <= n; i++) {
+          const x = r.x0 + ((r.x1 - r.x0) * i) / n;
+          if (i === 0) ctx.moveTo(v.sx(x), v.sy(railY(r, x)));
+          else ctx.lineTo(v.sx(x), v.sy(railY(r, x)));
+        }
+        ctx.stroke();
+      }
+      // Points of light running along the ribbon.
+      ctx.fillStyle = "rgb(255,255,255)";
+      for (let i = 0; i < 6; i++) {
+        const u = (time * 0.3 + i / 6 + r.x0 * 0.001) % 1;
+        const x = r.x0 + (r.x1 - r.x0) * u;
+        ctx.globalAlpha = 0.5 + 0.4 * Math.sin(time * 6 + i);
+        ctx.beginPath();
+        ctx.arc(v.sx(x), v.sy(railY(r, x)), 2.4 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+  });
+  ctx.globalCompositeOperation = "source-over";
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
+}
+
+/**
+ * Shrine gates: torii floating above the sea in chains of three. The next gate to thread pulses;
+ * under a Spirit Blessing they turn gold.
+ */
+export function shrines(v: View, t: Terrain, time: number, chainId: number, chainN: number, bless: number): void {
+  const { ctx } = v;
+  const s = Math.max(0.6, v.scale);
+  chunks(v, (c) => {
+    for (const r of t.chunk(c).rings) {
+      if (r.shrine < 0 || r.taken) continue;
+      const sx = v.sx(r.x);
+      const sy = v.sy(r.y);
+      if (sx < -90 || sx > v.w + 90) continue;
+      const next = r.shrine === chainId ? r.order === chainN : r.order === 0;
+      const hw = r.r * 0.95 * v.scale;
+      const ht = r.r * 1.15 * v.scale;
+      const glow = (next ? 0.9 : 0.45) * (0.8 + 0.2 * Math.sin(time * 4 + r.x));
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.globalCompositeOperation = "lighter";
+      const hg = ctx.createRadialGradient(0, 0, hw * 0.2, 0, 0, hw * 2.2);
+      hg.addColorStop(0, `rgba(255,120,70,${0.2 * glow})`);
+      hg.addColorStop(1, "rgba(255,120,70,0)");
+      ctx.fillStyle = hg;
+      ctx.fillRect(-hw * 2.2, -hw * 2.2, hw * 4.4, hw * 4.4);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = bless > 0 ? "rgb(255,214,120)" : "rgb(232,70,52)";
+      ctx.lineCap = "round";
+      ctx.lineWidth = 7 * s;
+      ctx.beginPath();
+      ctx.moveTo(-hw, ht);
+      ctx.lineTo(-hw, -ht * 0.55);
+      ctx.moveTo(hw, ht);
+      ctx.lineTo(hw, -ht * 0.55);
+      ctx.stroke();
+      ctx.lineWidth = 5 * s;
+      ctx.beginPath();
+      ctx.moveTo(-hw * 1.1, -ht * 0.15);
+      ctx.lineTo(hw * 1.1, -ht * 0.15);
+      ctx.stroke();
+      ctx.lineWidth = 9 * s;
+      ctx.beginPath();
+      ctx.moveTo(-hw * 1.45, -ht * 0.5);
+      ctx.quadraticCurveTo(0, -ht * 0.85, hw * 1.45, -ht * 0.5);
+      ctx.stroke();
+      ctx.lineCap = "butt";
+      ctx.restore();
+    }
+  });
+}
+
+/** Whirlpools: spiral arms turning on the surface, and a dark eye. */
+export function whirls(v: View, t: Terrain, time: number): void {
+  const { ctx } = v;
+  const s = Math.max(0.6, v.scale);
+  chunks(v, (c) => {
+    for (const w of t.chunk(c).whirls) {
+      const sx = v.sx(w.x);
+      if (sx < -80 || sx > v.w + 80) continue;
+      const sy = v.sy(t.height(w.x)) + 3;
+      ctx.fillStyle = "rgba(4,28,48,0.55)";
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, WHIRL_R * 0.7 * v.scale, 9 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(200,240,255,0.7)";
+      ctx.lineWidth = 2 * s;
+      for (let arm = 0; arm < 3; arm++) {
+        ctx.beginPath();
+        for (let k = 0; k <= 24; k++) {
+          const rr = (k / 24) * WHIRL_R * 0.9 * v.scale;
+          const a = arm * 2.094 + k * 0.28 - time * 3.4;
+          const x = sx + Math.cos(a) * rr;
+          const y = sy + Math.sin(a) * rr * 0.26;
+          if (k === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+  });
+}
+
+/** Thunderheads: dark storm clouds that crackle. Flying into one rides its updraft. */
+export function thunderheads(v: View, t: Terrain, time: number, flashes: boolean): void {
+  const { ctx } = v;
+  const BLOBS = [
+    [-0.7, 0.1, 0.7],
+    [-0.25, -0.25, 0.85],
+    [0.3, -0.2, 0.8],
+    [0.75, 0.1, 0.65],
+    [0, 0.2, 0.9],
+    [0.1, -0.5, 0.55],
+  ];
+  chunks(v, (c) => {
+    for (const cl of t.chunk(c).clouds) {
+      const sx = v.sx(cl.x);
+      const sy = v.sy(cl.y);
+      const r = cl.r * v.scale;
+      if (sx < -r * 2 || sx > v.w + r * 2) continue;
+      ctx.fillStyle = "rgba(34,38,70,0.92)";
+      for (const [dx, dy, k] of BLOBS) {
+        ctx.beginPath();
+        ctx.arc(sx + dx * r, sy - dy * r * 0.7, r * 0.62 * k, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = "rgba(78,86,132,0.45)";
+      for (const [dx, dy, k] of BLOBS) {
+        ctx.beginPath();
+        ctx.arc(sx + dx * r, sy - dy * r * 0.7 - r * 0.12, r * 0.4 * k, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const ph = (time * 0.8 + cl.x * 0.013) % 2.7;
+      const flash = ph < 0.12 ? 1 - ph / 0.12 : 0;
+      ctx.globalCompositeOperation = "lighter";
+      const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+      glow.addColorStop(0, `rgba(190,200,255,${0.1 + 0.08 * Math.sin(time * 3 + cl.x) + (flashes ? 0.45 * flash : 0.05)})`);
+      glow.addColorStop(1, "rgba(120,140,255,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+      if (flashes && flash > 0) {
+        // A jagged bolt dropping out of the cloud.
+        ctx.strokeStyle = `rgba(255,255,255,${flash})`;
+        ctx.lineWidth = Math.max(1.5, 2.6 * v.scale);
+        ctx.beginPath();
+        let bx = sx + (lh(Math.floor(time * 0.8 / 2.7) + cl.x) - 0.5) * r;
+        let by = sy + r * 0.2;
+        ctx.moveTo(bx, by);
+        for (let i = 1; i <= 6; i++) {
+          bx += (lh(i * 7 + cl.x) - 0.5) * r * 0.5;
+          by += r * 0.28;
+          ctx.lineTo(bx, by);
+        }
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = "source-over";
+    }
+  });
+}
+
+/**
+ * The Leviathan's back: at 5 km and every 5 km after, a sea serpent surfaces beneath the waves.
+ * Its arched back is the ramp; its head watches from beyond the rune ring.
+ */
+export function leviathan(v: View, t: Terrain, time: number): void {
+  const { ctx } = v;
+  const s = Math.max(0.6, v.scale);
+  const lo = v.wx(-300);
+  const hi = v.wx(v.w + 300);
+  for (let m = Math.max(1, Math.floor((lo - 2300) / LEV_EVERY)); m * LEV_EVERY <= hi + 2300; m++) {
+    const c = m * LEV_EVERY;
+    if (c < lo - 2300) continue;
+    const x0 = c - 1700;
+    const x1 = c + 1700;
+    const taper = (x: number) => Math.exp(-(((x - c) / 1500) ** 2));
+    ctx.beginPath();
+    for (let x = x0; x <= x1; x += 60) {
+      if (x === x0) ctx.moveTo(v.sx(x), v.sy(t.height(x)) + 2);
+      else ctx.lineTo(v.sx(x), v.sy(t.height(x)) + 2);
+    }
+    for (let x = x1; x >= x0; x -= 60) ctx.lineTo(v.sx(x), v.sy(t.height(x) - 150 * taper(x)));
+    ctx.closePath();
+    ctx.fillStyle = "rgba(12,52,60,0.94)";
+    ctx.fill();
+    // Scales along the back.
+    ctx.strokeStyle = "rgba(120,230,205,0.25)";
+    ctx.lineWidth = Math.max(1, 1.4 * s);
+    for (let row = 0; row < 2; row++) {
+      for (let x = x0 + (row ? 30 : 0); x <= x1; x += 60) {
+        ctx.beginPath();
+        ctx.arc(v.sx(x), v.sy(t.height(x) - 28 * row * taper(x)), 15 * s, 0.1, Math.PI - 0.1);
+        ctx.stroke();
+      }
+    }
+    // Spines along the ridge.
+    for (let x = c - 1300; x <= c + 1300; x += 95) {
+      const hgt = (30 + 22 * lh(x * 0.013)) * taper(x) + 10;
+      const sx = v.sx(x);
+      const sy = v.sy(t.height(x));
+      ctx.fillStyle = "rgba(18,78,86,0.96)";
+      ctx.strokeStyle = "rgba(120,255,220,0.5)";
+      ctx.beginPath();
+      ctx.moveTo(sx - 14 * s, sy + 2);
+      ctx.lineTo(sx + 4 * s, sy - hgt * s);
+      ctx.lineTo(sx + 16 * s, sy + 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    // The head, watching from beyond the runes, and its glowing eye.
+    const hx = v.sx(c + 1800);
+    const hy = v.sy(t.height(c + 1800));
+    ctx.fillStyle = "rgba(12,52,60,0.96)";
+    ctx.beginPath();
+    ctx.moveTo(hx - 150 * s, hy + 4 * s);
+    ctx.quadraticCurveTo(hx - 120 * s, hy - 170 * s, hx + 20 * s, hy - 200 * s);
+    ctx.quadraticCurveTo(hx + 150 * s, hy - 215 * s, hx + 250 * s, hy - 120 * s);
+    ctx.lineTo(hx + 150 * s, hy - 96 * s);
+    ctx.quadraticCurveTo(hx + 190 * s, hy - 60 * s, hx + 130 * s, hy - 30 * s);
+    ctx.lineTo(hx + 20 * s, hy + 4 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(120,255,220,0.45)";
+    ctx.lineWidth = Math.max(1, 2 * s);
+    ctx.stroke();
+    ctx.globalCompositeOperation = "lighter";
+    const eg = ctx.createRadialGradient(hx + 70 * s, hy - 150 * s, 0, hx + 70 * s, hy - 150 * s, 40 * s);
+    eg.addColorStop(0, `rgba(255,210,100,${0.8 + 0.2 * Math.sin(time * 2)})`);
+    eg.addColorStop(1, "rgba(255,160,60,0)");
+    ctx.fillStyle = eg;
+    ctx.fillRect(hx + 30 * s, hy - 190 * s, 80 * s, 80 * s);
+    ctx.globalCompositeOperation = "source-over";
+  }
+}
+
+/** Colossal serpent shapes gliding far behind the playable wave, barely there. */
+export function deepLife(v: View, camX: number, time: number, tint: [number, number, number]): void {
+  const { ctx } = v;
+  const SLOT = 7000;
+  const par = 0.22;
+  const s = Math.max(0.6, v.scale);
+  const span = (v.w * 0.9) / (par * v.scale);
+  const first = Math.max(0, Math.floor((camX - span) / SLOT));
+  const last = Math.floor((camX + span) / SLOT);
+  for (let k = first; k <= last; k++) {
+    if (lh(k + 60) > 0.55) continue;
+    const cx = v.w * 0.5 + (k * SLOT + lh(k + 61) * 2500 - camX) * par * v.scale + Math.sin(time * 0.05 + k) * 80;
+    if (cx < -520 * s || cx > v.w + 520 * s) continue;
+    const by = v.h * (0.6 + lh(k + 62) * 0.05);
+    const L = 780 * s;
+    const A = 26 * s;
+    ctx.fillStyle = `rgba(${tint[0] * 0.3 | 0},${tint[1] * 0.4 | 0},${tint[2] * 0.5 | 0},0.2)`;
+    ctx.beginPath();
+    for (let i = 0; i <= 28; i++) {
+      const u = i / 28;
+      const x = cx + (u - 0.5) * L;
+      const y = by + Math.sin(u * 7 + time * 0.5 + k) * A - (1 - Math.abs(2 * u - 1)) * 6 * s;
+      const th = (24 * (1 - Math.pow(Math.abs(2 * u - 1), 1.6)) + 3) * s;
+      if (i === 0) ctx.moveTo(x, y - th);
+      else ctx.lineTo(x, y - th);
+    }
+    for (let i = 28; i >= 0; i--) {
+      const u = i / 28;
+      const x = cx + (u - 0.5) * L;
+      const y = by + Math.sin(u * 7 + time * 0.5 + k) * A - (1 - Math.abs(2 * u - 1)) * 6 * s;
+      const th = (24 * (1 - Math.pow(Math.abs(2 * u - 1), 1.6)) + 3) * s;
+      ctx.lineTo(x, y + th);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+/**
+ * Foreground framing: ruined arches and fog banks drifting past the camera. Arches fade out
+ * toward the middle of the screen so they hug the edges and never block the view.
+ */
+export function framing(v: View, camX: number, time: number, tint: [number, number, number]): void {
+  const { ctx } = v;
+  const SLOT = 6000;
+  const par = 1.4;
+  const s = Math.max(0.6, v.scale);
+  const span = (v.w * 0.9) / (par * v.scale);
+  const first = Math.max(0, Math.floor((camX - span) / SLOT));
+  const last = Math.floor((camX + span) / SLOT);
+  ctx.fillStyle = `rgb(${tint[0] * 0.12 | 0},${tint[1] * 0.14 | 0},${tint[2] * 0.2 | 0})`;
+  for (let k = first; k <= last; k++) {
+    if (lh(k + 90) > 0.5) continue;
+    const sx = v.w * 0.5 + (k * SLOT + lh(k + 91) * 2000 - camX) * par * v.scale;
+    const edge = Math.abs(sx - v.w * 0.5) / (v.w * 0.5);
+    const t = Math.min(1, Math.max(0, (edge - 0.58) / 0.25));
+    if (t <= 0 || edge > 1.4) continue;
+    const a = 0.85 * t * t * (3 - 2 * t);
+    const hgt = v.h * (0.42 + lh(k + 92) * 0.14);
+    const w = 150 * s;
+    ctx.globalAlpha = a;
+    ctx.beginPath();
+    ctx.moveTo(sx - w, v.h + 6);
+    ctx.lineTo(sx - w, v.h - hgt * 0.7);
+    ctx.quadraticCurveTo(sx - w, v.h - hgt, sx, v.h - hgt);
+    ctx.quadraticCurveTo(sx + w, v.h - hgt, sx + w, v.h - hgt * 0.78);
+    ctx.lineTo(sx + w * 0.9, v.h - hgt * 0.5);
+    ctx.lineTo(sx + w * 0.62, v.h - hgt * 0.62);
+    ctx.lineTo(sx + w * 0.62, v.h + 6);
+    ctx.lineTo(sx + w * 0.38, v.h + 6);
+    ctx.lineTo(sx + w * 0.38, v.h - hgt * 0.7);
+    ctx.quadraticCurveTo(sx, v.h - hgt * 0.78, sx - w * 0.38, v.h - hgt * 0.7);
+    ctx.lineTo(sx - w * 0.38, v.h + 6);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // Fog banks, low and slow.
+  const spanF = v.w + 700;
+  for (let i = 0; i < 3; i++) {
+    const bx = ((((i * 520 - time * (10 + i * 4) - camX * 0.25 * v.scale) % spanF) + spanF) % spanF) - 350;
+    const by = v.h * (0.88 + 0.03 * i);
+    const g = ctx.createRadialGradient(bx, by, 0, bx, by, 300 * s);
+    g.addColorStop(0, "rgba(225,238,250,0.12)");
+    g.addColorStop(1, "rgba(225,238,250,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(bx - 300 * s, by - 80 * s, 600 * s, 160 * s);
   }
 }

@@ -8,7 +8,8 @@ import { BOARD_IDS, boardOf } from "./gear";
 import { makeEvents, makeSpirit, step, surge, STEP, type Spirit, type StepEvents } from "./physics";
 import { Terrain } from "./terrain";
 
-const VERSION = 2;
+// Bumped whenever the physics changes: an old link would replay differently.
+const VERSION = 3;
 export const MAX_EVENTS = 1500;
 
 export const DOWN = 0;

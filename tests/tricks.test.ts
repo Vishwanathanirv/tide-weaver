@@ -87,7 +87,7 @@ describe("biomes and traps", () => {
   });
 
   it("spikes and gates alternate on the beat", () => {
-    const sp = { x: 0, phase: 0 };
+    const sp = { x: 0, phase: 0, taken: false };
     expect(spikeUp(sp, 0)).toBe(true);
     expect(spikeUp(sp, 25)).toBe(false);
     expect(gateShut(sp, 0)).toBe(false);

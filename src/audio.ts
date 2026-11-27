@@ -52,6 +52,12 @@ export class Score {
   private rainGain!: GainNode;
   private windGain!: GainNode;
   private whaleGain!: GainNode;
+  private rumbleNoise!: GainNode;
+  private rumbleSub!: GainNode;
+  private grindGain!: GainNode;
+  /** 0..1: how far into the stratosphere the spirit is. */
+  private strato = 0;
+  private nextBeat = 0;
   private whaleOsc!: OscillatorNode;
   private tap: MediaStreamAudioDestinationNode | null = null;
   private noise!: AudioBuffer;
@@ -190,6 +196,16 @@ export class Score {
 
     this.rainGain = this.loopNoise("bandpass", 2600, 0.6);
     this.windGain = this.loopNoise("lowpass", 420, 0.4);
+    // The tidal wave's rumble (sub-bass plus low noise), and the sizzle of grinding a sky-rail.
+    this.rumbleNoise = this.loopNoise("lowpass", 110, 0.8);
+    this.grindGain = this.loopNoise("bandpass", 3400, 1.6);
+    const sub = ctx.createOscillator();
+    sub.type = "sine";
+    sub.frequency.value = 38;
+    this.rumbleSub = ctx.createGain();
+    this.rumbleSub.gain.value = 0;
+    sub.connect(this.rumbleSub).connect(this.music);
+    sub.start();
   }
 
   private loopNoise(type: BiquadFilterType, freq: number, q: number): GainNode {
@@ -232,6 +248,100 @@ export class Score {
     this.notes.gain.setTargetAtTime(0.5 * notes, t, 0.05);
   }
 
+  /** 0..1: height into the thin air above the clouds. */
+  setStrato(k: number): void {
+    this.strato = Math.max(0, Math.min(1, k));
+  }
+
+  /** The tidal wave closing in: a sub-bass rumble that grows with `k` (0 far, 1 on top of you). */
+  setRumble(k: number): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.rumbleNoise.gain.setTargetAtTime(0.2 * k, t, 0.25);
+    this.rumbleSub.gain.setTargetAtTime(0.05 * k + 0.28 * k * k, t, 0.25);
+  }
+
+  /** The sizzle of a board on a sky-rail. */
+  setGrind(on: boolean, speed01 = 0): void {
+    if (!this.ctx) return;
+    this.grindGain.gain.setTargetAtTime(on ? 0.04 + 0.05 * Math.min(1, speed01) : 0, this.ctx.currentTime, 0.05);
+  }
+
+  private thump(when: number, v: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(72, when);
+    o.frequency.exponentialRampToValueAtTime(38, when + 0.16);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(v, when + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
+    o.connect(g).connect(this.notes);
+    o.start(when);
+    o.stop(when + 0.25);
+  }
+
+  /** Locking onto a sky-rail: a bright rising ping. */
+  railOn(): void {
+    this.note(9, 1, 0.8);
+    this.note(12, 1, 0.7, 1);
+    this.whoosh(0.9);
+  }
+
+  /** A whirlpool: a swirl of rising tone as it spins you, then a burst as it fires you out. */
+  whirl(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running") return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(900, t + 0.55);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.12, t + 0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    o.connect(g).connect(this.notes);
+    o.start(t);
+    o.stop(t + 0.75);
+  }
+
+  /** A Spirit Blessing: a full, slow chord of bells. */
+  bless(): void {
+    this.note(4, 1, 0.8);
+    this.note(7, 1, 0.75, 0);
+    this.note(9, 1, 0.7, 0);
+    this.note(12, 1, 0.7, 2);
+    this.note(14, 1, 0.65, 3);
+    this.thud(0.4);
+  }
+
+  /** Lightning inside a thunderhead: a short crackle. */
+  zap(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running") return;
+    const t = ctx.currentTime;
+    const s = ctx.createBufferSource();
+    s.buffer = this.noise;
+    const f = ctx.createBiquadFilter();
+    f.type = "highpass";
+    f.frequency.value = 3800;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.14, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    s.connect(f).connect(g).connect(this.notes);
+    s.start(t, Math.random());
+    s.stop(t + 0.2);
+  }
+
+  /** The Leviathan's rune ring: a deep boom and the melody. */
+  rune(): void {
+    this.thud(1);
+    this.motif(0, true);
+  }
+
   setUnderwater(on: boolean): void {
     if (!this.ctx) return;
     this.muffle.frequency.setTargetAtTime(on ? 700 : 20000, this.ctx.currentTime, on ? 0.05 : 0.15);
@@ -252,13 +362,21 @@ export class Score {
     const t = ctx.currentTime;
     const sp = Math.min(1, speed / 1800);
     // High up the score thins to air and chimes; down in the abyss it warms and the deep sings.
-    this.padGain.gain.setTargetAtTime((0.018 + sp * 0.03) * this.padLevel * (1 - 0.55 * air) * (1 + 0.5 * depth), t, 0.4);
+    // In the stratosphere the sea falls silent: the music and the wind drop away, and only chimes and a heartbeat remain.
+    const calm = 1 - this.strato;
+    this.music.gain.setTargetAtTime(this.musicLevel * (1 - 0.85 * this.strato), t, 0.3);
+    this.padGain.gain.setTargetAtTime((0.018 + sp * 0.03) * this.padLevel * (1 - 0.55 * air) * (1 + 0.5 * depth) * calm, t, 0.4);
+    if (this.strato > 0.08 && t >= this.nextBeat) {
+      this.thump(t + 0.02, 0.32 * this.strato);
+      this.thump(t + 0.2, 0.2 * this.strato);
+      this.nextBeat = t + 1.15 - 0.35 * this.strato;
+    }
     this.padFilter.frequency.setTargetAtTime((380 + sp * 1300 + (airborne ? 250 : 0) + air * 1400) * (1 - 0.5 * depth), t, 0.3);
     this.send.gain.setTargetAtTime(0.42 + 0.38 * air + 0.12 * depth, t, 0.5);
     this.whaleGain.gain.setTargetAtTime(0.06 * depth * depth + 0.012 * depth, t, 0.8);
     this.whaleOsc.frequency.setTargetAtTime(66 + 22 * (1 - depth), t, 1.5);
-    this.windGain.gain.setTargetAtTime(sp * sp * 0.05, t, 0.2);
-    this.rainGain.gain.setTargetAtTime(rain * 0.07, t, 0.8);
+    this.windGain.gain.setTargetAtTime(sp * sp * 0.05 * calm, t, 0.2);
+    this.rainGain.gain.setTargetAtTime(rain * 0.07 * calm, t, 0.8);
     if (style !== this.chord) {
       this.chord = style;
       const ch = CHORDS[style];

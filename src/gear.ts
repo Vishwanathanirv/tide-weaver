@@ -11,6 +11,8 @@ export interface Board {
   flip: number;
   /** Ring catch radius multiplier. */
   reach: number;
+  /** A particle trail the board leaves, if any. */
+  fx?: "ember" | "frost";
   note: string;
 }
 
@@ -28,6 +30,9 @@ export const BOARDS: readonly Board[] = [
   { id: "anchor", name: "Anchor", price: 30, dive: 2.35, flip: 6.2, reach: 1, note: "Dives harder, flips slower" },
   { id: "feather", name: "Feather", price: 40, dive: 1.9, flip: 8.4, reach: 1.12, note: "Floats, flips fast, wider ring reach" },
   { id: "tempest", name: "Tempest", price: 90, dive: 2.25, flip: 7.8, reach: 1.06, note: "Heavy dive, quick flips" },
+  // New boards go at the end: ghost links store a board by its position in this list.
+  { id: "cinder", name: "Cinder", price: 70, dive: 2.2, flip: 7.4, reach: 1.04, fx: "ember", note: "Volcanic: leaves embers" },
+  { id: "rime", name: "Rime", price: 70, dive: 2, flip: 7.8, reach: 1.08, fx: "frost", note: "Glacial: leaves frost mist" },
 ];
 
 export const SCARVES: readonly Scarf[] = [

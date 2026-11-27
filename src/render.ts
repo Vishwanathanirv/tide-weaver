@@ -5,7 +5,7 @@ import type { Look } from "./surfer";
 import { mulberry32 } from "./rng";
 import type { CalloutKind } from "./juice";
 import { Surfer } from "./surfer";
-import { abyss, birds, caustics, foreground, hazards, landmarks, life, observatory, perched, pod, props, type View } from "./world";
+import { abyss, birds, caustics, deepLife, foreground, framing, hazards, landmarks, leviathan, life, observatory, perched, pod, props, rails, shrines, thunderheads, whirls, type View } from "./world";
 
 type RGB = [number, number, number];
 
@@ -214,6 +214,12 @@ export interface FrameState {
   intro: number;
   /** The tidal wave wall, in world space, with its fade; null when there is none. */
   tide: { x: number; a: number } | null;
+  /** 0..1 each: how far into the eclipse, how close the storm front, and how thick the lagoon fog. */
+  eclipse: number;
+  storm: number;
+  fog: number;
+  /** The scarf paints a ribbon of light across the sky (LOCKED IN). */
+  ribbon: boolean;
 }
 
 const TRAIL_MAX = 120;
@@ -275,6 +281,15 @@ export class Renderer {
   private poseCrouch = 0;
   private poseLean = 0;
   private poseArms = 0;
+  /** Lifts the stars into the sky: in the eclipse and high above the clouds. */
+  private skyBoost = 0;
+  private eclipseK = 0;
+  /** The glowing ribbon the scarf paints at x3.0: world x, y and age of each point. */
+  private rib = new Float32Array(300 * 3);
+  private ribHead = 0;
+  private ribLen = 0;
+  /** Golden afterimages left by a razor-thin move: x, y, angle, age. */
+  private afterimg = new Float32Array(10 * 4).fill(99);
   private surfer = new Surfer();
   private view: View = { ctx: null as unknown as CanvasRenderingContext2D, w: 1, h: 1, scale: 1, sx: (x) => this.sx(x), sy: (y) => this.sy(y), wx: (x) => this.wx(x) };
   private calls: { text: string; kind: CalloutKind; x: number; y: number; life: number; big: boolean }[] = [];
@@ -336,6 +351,21 @@ export class Renderer {
     if (this.trailLen < this.trailCap) this.trailLen++;
   }
 
+  /** A golden afterimage of the surfer, from the last few trail points: for razor-thin moves. */
+  afterimage(): void {
+    let n = 0;
+    for (let k = 0; k < 6 && k * 3 + 1 < this.trailLen; k++) {
+      const idx = (this.trailHead - 1 - k * 3 + TRAIL_MAX * 3) % TRAIL_MAX;
+      const pv = (idx - 1 + TRAIL_MAX) % TRAIL_MAX;
+      const o = n * 4;
+      this.afterimg[o] = this.trail[idx * 2];
+      this.afterimg[o + 1] = this.trail[idx * 2 + 1];
+      this.afterimg[o + 2] = Math.atan2(this.trail[idx * 2 + 1] - this.trail[pv * 2 + 1], this.trail[idx * 2] - this.trail[pv * 2]);
+      this.afterimg[o + 3] = -k * 0.06;
+      n++;
+    }
+  }
+
   /** Longer light trail for some scarves. */
   setTrail(mult: number): void {
     this.trailCap = clamp(Math.round(48 * mult), 24, TRAIL_MAX);
@@ -374,6 +404,8 @@ export class Renderer {
     for (const c of this.calls) c.life = 0;
     this.barsTarget = 0;
     this.perch.clear();
+    this.ribLen = 0;
+    this.afterimg.fill(99);
     this.surfer.reset();
   }
 
@@ -498,7 +530,8 @@ export class Renderer {
     this.camX = px + this.pan;
     const depth = Math.max(0, ground - py);
     const lead = clamp(f.spirit.vy * 0.11, -150, 150);
-    const targetY = ground + Math.max(0, alt - 2200) * 0.85 - depth * 0.85 + lead + 240 * f.intro;
+    // Past a modest height the camera rises with the spirit, so a thunderhead or a sky-rail never takes it off screen.
+    const targetY = ground + Math.max(0, alt - 600) * 0.9 - depth * 0.85 + lead + 240 * f.intro;
     this.camY = this.ready ? lerp(this.camY, targetY, 1 - Math.exp(-f.dt * 4)) : targetY;
     this.ready = true;
     this.fx.update(f.dt, f.time);
@@ -522,8 +555,13 @@ export class Renderer {
       ctx.scale(cover, cover);
       ctx.translate(-w / 2, -h / 2);
     }
+    const high = clamp((alt - 1800) / 1200, 0, 1);
+    this.eclipseK = f.eclipse;
+    this.skyBoost = Math.max(f.eclipse, high);
     this.sky(f, wt);
     this.wind(f);
+    this.stormFront(f);
+    this.meteors(f);
     this.view.ctx = ctx;
     this.view.w = w;
     this.view.h = h;
@@ -531,21 +569,29 @@ export class Renderer {
     // Landmarks stand between the far and middle ranges.
     this.mountains(wt, () => landmarks(this.view, this.camX, ground, f.time, mixPal(wt, (p) => p.skyBot, this.tmp), wt[MOON] + wt[AUR] * 0.9 + wt[TW] * 0.35));
     this.midSea(f, wt);
+    deepLife(this.view, this.camX, f.time, mixPal(wt, (p) => p.skyBot, this.tmp));
     birds(this.view, f.time, wt[3] + wt[4] > 0.5);
     if (f.obsA > 0) observatory(this.view, f.obsX, f.obsY, f.time, f.obsA);
     this.bestMarker(f);
+    thunderheads(this.view, f.terrain, f.time, f.flashes && !f.reducedMotion);
+    rails(this.view, f.terrain, f.time, f.spirit.rail);
+    shrines(this.view, f.terrain, f.time, f.spirit.chainId, f.spirit.chainN, f.spirit.bless);
     this.ringsLayer(f);
+    this.runes(f);
     this.seaLayer(f, wt);
     this.underwater(f, wt);
     this.rays(f);
+    leviathan(this.view, f.terrain, f.time);
+    whirls(this.view, f.terrain, f.time);
     this.view.ctx = ctx;
     this.view.w = w;
     this.view.h = h;
     this.view.scale = this.scale;
     caustics(this.view, f.terrain, f.time, f.spirit.under);
     abyss(this.view, f.terrain, f.time);
-    hazards(this.view, f.terrain, f.frame, f.hazardsLive);
+    hazards(this.view, f.terrain, f.frame, f.hazardsLive, f.spirit.bless);
     props(this.view, f.terrain, f.time);
+    this.fogLayer(f, px, py);
     life(this.view, f.terrain, px, py, f.time, wt[MOON] + wt[AUR] * 0.9 + wt[TW] * 0.35);
     perched(this.view, f.terrain, this.perch, px, f.time, mixPal(wt, (p) => p.skyBot, this.tmp));
     this.traces(f);
@@ -553,12 +599,15 @@ export class Renderer {
     this.podA = ease(this.podA, f.streak >= 3 ? 1 : 0, f.streak >= 3 ? 1.2 : 0.6);
     if (this.podA > 0.02) pod(this.view, f.terrain, px, f.time, this.podA);
     this.trailLayer(f, px, py);
+    this.ribbonLayer(f, px, py);
+    this.afterLayer(f);
     this.ghostLayer(f);
     this.particlesLayer(f, wt);
     this.spiritLayer(f, px, py);
     this.tideLayer(f);
     this.motes(f, wt);
     foreground(this.view, this.camX, f.time, mixPal(wt, (p) => p.skyBot, this.tmp));
+    framing(this.view, this.camX, f.time, mixPal(wt, (p) => p.skyBot, this.tmp));
     this.weatherLayer(f, wt);
     this.textLayer(f);
     ctx.restore();
@@ -607,7 +656,12 @@ export class Renderer {
     ctx.fillStyle = g;
     ctx.fillRect(-20, -20, w + 40, h + 40);
 
-    const night = wt[MOON] + wt[AUR] * 0.9 + wt[TW] * 0.35 + wt[INK] * 0.05;
+    // High above the clouds and in the eclipse the sky darkens and the stars come out, even by day.
+    if (this.skyBoost > 0.01) {
+      ctx.fillStyle = `rgba(2,4,18,${0.62 * this.skyBoost})`;
+      ctx.fillRect(-20, -20, w + 40, h + 40);
+    }
+    const night = Math.min(1.2, wt[MOON] + wt[AUR] * 0.9 + wt[TW] * 0.35 + wt[INK] * 0.05 + this.skyBoost);
     if (night > 0.01) {
       ctx.fillStyle = "#fff";
       for (let i = 0; i < 170; i++) {
@@ -710,6 +764,21 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
 
+    if (this.eclipseK > 0.02) {
+      // The eclipse: a black disc over the moon (or sun) with a ring of corona.
+      const r = Math.min(w, h) * (wt[PAPER] > 0.5 ? 0.115 : 0.07);
+      ctx.globalCompositeOperation = "lighter";
+      const cg = ctx.createRadialGradient(mx, my, r * 0.9, mx, my, r * 3.4);
+      cg.addColorStop(0, `rgba(255,214,150,${0.6 * this.eclipseK})`);
+      cg.addColorStop(1, "rgba(255,180,100,0)");
+      ctx.fillStyle = cg;
+      ctx.fillRect(mx - r * 3.4, my - r * 3.4, r * 6.8, r * 6.8);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = `rgba(2,3,10,${0.97 * this.eclipseK})`;
+      ctx.beginPath();
+      ctx.arc(mx, my, r * 1.02, 0, Math.PI * 2);
+      ctx.fill();
+    }
     const cw = wt[TW] + wt[PAPER] + wt[INK] * 0.6 + wt[MOON] * 0.25;
     if (cw > 0.01) {
       for (let i = 0; i < 6; i++) {
@@ -1012,7 +1081,7 @@ export class Renderer {
     const accent = mixPal(f.weights, (p) => p.accent, this.tmp);
     for (let c = Math.max(0, from); c <= to; c++) {
       for (const r of f.terrain.rings(c)) {
-        if (r.taken) continue;
+        if (r.taken || r.shrine >= 0) continue;
         const split = r.splitAt >= 0;
         const off = split ? Math.min(80, (f.frame - r.splitAt) * 4) : 0;
         for (const sign of split ? [1, -1] : [0]) {
@@ -1147,6 +1216,17 @@ export class Renderer {
     const x = this.sx(px);
     const y = this.sy(py);
     const size = 10 * clamp(this.scale * 1.1, 0.75, 1.5);
+    if (s.bless > 0) {
+      // A Spirit Blessing: a wide golden glow that fades out over the last seconds.
+      const bk = Math.min(1, s.bless / 2);
+      ctx.globalCompositeOperation = "lighter";
+      const bg = ctx.createRadialGradient(x, y, 0, x, y, size * 6);
+      bg.addColorStop(0, `rgba(255,226,140,${0.5 * bk})`);
+      bg.addColorStop(1, "rgba(255,200,90,0)");
+      ctx.fillStyle = bg;
+      ctx.fillRect(x - size * 6, y - size * 6, size * 12, size * 12);
+      ctx.globalCompositeOperation = "source-over";
+    }
     const halo = auraColor(f.aura, 1, f.time, this.tmp2);
     // Low light: the halo shrinks and flickers.
     const flick = f.light < 0.25 ? 0.6 + 0.4 * Math.sin(f.time * 18) : 1;
@@ -1161,7 +1241,7 @@ export class Renderer {
 
     const slope = f.terrain.slope(px);
     const alt2 = py - f.terrain.height(px);
-    const crouchT = s.grounded ? (f.holding ? 1 : slope < -0.15 ? 0.5 : 0) : 0;
+    const crouchT = s.rail ? 1 : s.grounded ? (f.holding ? 1 : slope < -0.15 ? 0.5 : 0) : 0;
     const leanT = s.grounded ? clamp(slope * 1.6, -1, 1) : 0;
     const armsT = !s.grounded && !s.under && Math.abs(s.vy) < 320 && alt2 > 100 ? 1 : 0;
     const pk = 1 - Math.exp(-f.dt * 9);
@@ -1192,6 +1272,184 @@ export class Renderer {
       }
       ctx.globalAlpha = 1;
       ctx.lineCap = "butt";
+    }
+  }
+
+  /** Dark storm clouds gathering on the horizon before the Obsidian Storm, with sheet lightning. */
+  private stormFront(f: FrameState): void {
+    const k = f.storm;
+    if (k < 0.02) return;
+    const { ctx, w, h } = this;
+    const g = ctx.createLinearGradient(0, 0, 0, h * 0.62);
+    g.addColorStop(0, `rgba(8,10,26,${0.7 * k})`);
+    g.addColorStop(1, "rgba(8,10,26,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(-20, -20, w + 40, h * 0.62 + 20);
+    ctx.fillStyle = `rgba(22,26,52,${0.8 * k})`;
+    const span = w + 400;
+    for (let i = 0; i < 9; i++) {
+      const cx = ((((i * 263 - this.camX * 0.05 * this.scale - f.time * 5) % span) + span) % span) - 200;
+      this.puff(cx, h * (0.05 + ((i * 37) % 18) / 100), 60 + ((i * 53) % 50));
+    }
+    // Sheet lightning: the whole sky flickers every few seconds.
+    const p = (f.time % 5.3) / 0.5;
+    if (p < 1 && f.flashes && !f.reducedMotion) {
+      const flash = (p < 0.2 ? p / 0.2 : (1 - p) / 0.8) * (0.6 + 0.4 * Math.sin(p * 40));
+      ctx.fillStyle = `rgba(190,205,255,${0.28 * flash * k})`;
+      ctx.fillRect(-20, -20, w + 40, h + 40);
+    }
+  }
+
+  /** Meteors streaking across the sky during the eclipse. */
+  private meteors(f: FrameState): void {
+    const k = f.eclipse;
+    if (k < 0.1) return;
+    const { ctx, w, h } = this;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    for (let i = 0; i < 4; i++) {
+      const period = 2.2 + i * 0.6;
+      const n = Math.floor(f.time / period + i * 0.31);
+      const ph = (f.time / period + i * 0.31) % 1;
+      if (ph > 0.35) continue;
+      const u = ph / 0.35;
+      const x0 = w * (0.08 + hash(n + i) * 0.84);
+      const y0 = h * (0.02 + hash(n + i + 9) * 0.2);
+      const x = x0 + u * 360;
+      const y = y0 + u * 200;
+      const g = ctx.createLinearGradient(x, y, x - 130, y - 72);
+      g.addColorStop(0, `rgba(255,246,210,${k * (1 - u * 0.4)})`);
+      g.addColorStop(1, "rgba(255,200,120,0)");
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - 130, y - 72);
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt";
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  /** Visibility tightens in the lagoon fog: the edges of the world fade out around the spirit. */
+  private fogLayer(f: FrameState, px: number, py: number): void {
+    if (f.fog < 0.01) return;
+    const { ctx, w, h } = this;
+    const sx = this.sx(px);
+    const sy = this.sy(py);
+    const col = mixPal(f.weights, (p) => p.skyBot, this.tmp2);
+    const r = `${(col[0] * 0.5) | 0},${(col[1] * 0.55) | 0},${(col[2] * 0.7) | 0}`;
+    const g = ctx.createRadialGradient(sx, sy, h * 0.16, sx, sy, Math.max(w, h) * 0.75);
+    g.addColorStop(0, `rgba(${r},0)`);
+    g.addColorStop(1, `rgba(${r},${0.78 * f.fog})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(-20, -20, w + 40, h + 40);
+  }
+
+  /** At x3.0 the scarf paints a ribbon of light across the sky, fading over six seconds. */
+  private ribbonLayer(f: FrameState, px: number, py: number): void {
+    const N = 300;
+    const { ctx } = this;
+    if (f.ribbon && f.dt > 0) {
+      const o = this.ribHead * 3;
+      this.rib[o] = px;
+      this.rib[o + 1] = py;
+      this.rib[o + 2] = 0;
+      this.ribHead = (this.ribHead + 1) % N;
+      if (this.ribLen < N) this.ribLen++;
+    }
+    while (this.ribLen > 0 && this.rib[((this.ribHead - this.ribLen + N) % N) * 3 + 2] > 6) this.ribLen--;
+    if (this.ribLen < 2) return;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    let lx = 0;
+    let ly = 0;
+    let la = -1;
+    for (let i = 0; i < this.ribLen; i++) {
+      const idx = (this.ribHead - this.ribLen + i + N) % N;
+      this.rib[idx * 3 + 2] += f.dt;
+      const a = clamp(1 - this.rib[idx * 3 + 2] / 6, 0, 1);
+      const x = this.sx(this.rib[idx * 3]);
+      const y = this.sy(this.rib[idx * 3 + 1]);
+      if (i > 0 && la > 0 && a > 0) {
+        const m = Math.min(a, la);
+        ctx.strokeStyle = css(auraColor(f.aura, i / this.ribLen, f.time, this.tmp), 0.55 * m);
+        ctx.lineWidth = (2 + 9 * m) * this.scale;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+      lx = x;
+      ly = y;
+      la = a;
+    }
+    ctx.lineCap = "butt";
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  /** Golden afterimages of a razor-thin move, fading over a second. */
+  private afterLayer(f: FrameState): void {
+    const { ctx } = this;
+    const size = 10 * clamp(this.scale * 1.1, 0.75, 1.5);
+    for (let i = 0; i < 10; i++) {
+      const o = i * 4;
+      let age = this.afterimg[o + 3];
+      if (age >= 0.9) continue;
+      age += f.dt;
+      this.afterimg[o + 3] = age;
+      if (age < 0) continue;
+      const a = (1 - age / 0.9) * 0.55;
+      const sx = this.sx(this.afterimg[o]);
+      const sy = this.sy(this.afterimg[o + 1]);
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(-this.afterimg[o + 2]);
+      const s = size / 10;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = "rgb(255,222,140)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 17 * s, 2.6 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgb(255,222,140)";
+      ctx.lineWidth = 4 * s;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-4 * s, -2 * s);
+      ctx.lineTo(1.5 * s, -23 * s);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(2.5 * s, -28 * s, 4.4 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** The Leviathan's rune ring: a glowing circle of ancient marks, turning slowly. */
+  private runes(f: FrameState): void {
+    const { ctx } = this;
+    const from = Math.floor(this.wx(-200) / RING_CHUNK);
+    const to = Math.floor(this.wx(this.w + 200) / RING_CHUNK);
+    for (let c = Math.max(0, from); c <= to; c++) {
+      for (const r of f.terrain.rings(c)) {
+        if (!r.rune || r.taken) continue;
+        const x = this.sx(r.x);
+        const y = this.sy(r.y);
+        const rad = r.r * this.scale * 1.35;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = "rgba(255,214,120,0.8)";
+        ctx.lineWidth = Math.max(2, 3 * this.scale);
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2 + f.time * 0.4;
+          const len = (0.18 + 0.1 * ((i * 7) % 3)) * rad;
+          ctx.beginPath();
+          ctx.moveTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+          ctx.lineTo(x + Math.cos(a) * (rad + len), y + Math.sin(a) * (rad + len));
+          ctx.stroke();
+        }
+        ctx.globalCompositeOperation = "source-over";
+      }
     }
   }
 

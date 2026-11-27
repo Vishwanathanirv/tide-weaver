@@ -1,4 +1,5 @@
-import { GATE_HEIGHT, RING_CHUNK, gateShut, spikeUp, type Terrain } from "./terrain";
+import { GATE_HEIGHT, RING_CHUNK, gateShut, railSlope, railY, spikeUp, type Rail, type Terrain, type Whirl } from "./terrain";
+import { gravityScale } from "./events";
 
 export const G = 900;
 export const DIVE = 2.1;
@@ -50,6 +51,19 @@ export interface StepEvents {
   split: boolean;
   /** The ring crossed this step was a split trick ring. */
   thread: boolean;
+  /** Sky-rail: the board locked on / came off this step. */
+  railOn: boolean;
+  railOff: boolean;
+  /** A shrine gate was threaded; all three in order began a Spirit Blessing. */
+  shrine: boolean;
+  blessing: boolean;
+  /** A whirlpool took hold / fired the spirit out. */
+  whirlIn: boolean;
+  whirlOut: boolean;
+  /** Inside a thunderhead's updraft. */
+  storm: boolean;
+  /** The Leviathan's rune ring was threaded. */
+  rune: boolean;
 }
 
 export interface Spirit {
@@ -89,7 +103,23 @@ export interface Spirit {
   flip: number;
   /** Ring catch radius multiplier from the worn board. */
   reach: number;
+  /** The sky-rail being ground, and the short cooldown after leaving one. */
+  rail: Rail | null;
+  railCd: number;
+  /** The whirlpool spinning the spirit, how long it has, the speed it came in at, and a cooldown. */
+  whirl: Whirl | null;
+  whirlT: number;
+  whirlSpeed: number;
+  whirlCd: number;
+  /** Seconds left of a Spirit Blessing, and the shrine chain being threaded (id and gates so far). */
+  bless: number;
+  chainId: number;
+  chainN: number;
 }
+
+export const BLESS_TIME = 8;
+const RAIL_ACCEL = 140;
+const WHIRL_TIME = 0.6;
 
 export const SURGE_TIME = 1.2;
 export const SURGE_COOLDOWN = 4.5;
@@ -112,11 +142,11 @@ export function surge(s: Spirit): boolean {
 
 export function makeSpirit(terrain: Terrain, dive = DIVE, flip = FLIP_RATE, reach = 1): Spirit {
   const y = terrain.height(0) + 220;
-  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach };
+  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach, rail: null, railCd: 0, whirl: null, whirlT: 0, whirlSpeed: 0, whirlCd: 0, bless: 0, chainId: -1, chainN: 0 };
 }
 
 export function makeEvents(): StepEvents {
-  return { takeoff: false, landing: null, apex: false, ring: 0, ringX: 0, ringY: 0, ringCenter: 0, nearMiss: false, landMiss: 0, flips: 0, crash: "", plunge: false, breach: false, gem: 0, gemX: 0, gemY: 0, split: false, thread: false };
+  return { takeoff: false, landing: null, apex: false, ring: 0, ringX: 0, ringY: 0, ringCenter: 0, nearMiss: false, landMiss: 0, flips: 0, crash: "", plunge: false, breach: false, gem: 0, gemX: 0, gemY: 0, split: false, thread: false, railOn: false, railOff: false, shrine: false, blessing: false, whirlIn: false, whirlOut: false, storm: false, rune: false };
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -159,8 +189,68 @@ function underwater(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: Ste
   }
 }
 
+/** Riding a sky-rail: the board follows the ribbon, speeding up a little, until it ends. */
+function grind(s: Spirit, t: Terrain, dt: number, ev: StepEvents): void {
+  const r = s.rail!;
+  s.speed = Math.min(MAX_SPEED, s.speed + RAIL_ACCEL * dt);
+  const k = railSlope(r, s.x);
+  const c = 1 / Math.sqrt(1 + k * k);
+  s.x += s.speed * c * dt;
+  s.vx = s.speed * c;
+  s.vy = s.speed * k * c;
+  s.angle = Math.atan(k);
+  s.grounded = false;
+  s.under = false;
+  s.airTime = 0;
+  s.airRot = 0;
+  s.holdAir = 0;
+  if (s.x >= r.x1) {
+    s.y = railY(r, r.x1);
+    s.rail = null;
+    s.railCd = 0.5;
+    s.vy += 120;
+    ev.railOff = true;
+  } else s.y = railY(r, s.x);
+  const alt = s.y - t.height(s.x);
+  if (alt > s.maxAlt) s.maxAlt = alt;
+}
+
+/** A whirlpool: sucked under for a moment, spun, then fired out horizontally, faster than you came in. */
+function spin(s: Spirit, t: Terrain, dt: number, ev: StepEvents): void {
+  s.whirlT += dt;
+  const p = Math.min(1, s.whirlT / WHIRL_TIME);
+  s.x += s.whirlSpeed * 0.35 * dt;
+  const surface = t.height(s.x);
+  s.y = surface - 150 * Math.sin(Math.PI * p);
+  s.angle += 18 * dt;
+  s.vx = s.whirlSpeed * 0.35;
+  s.vy = 0;
+  if (p >= 1) {
+    s.whirl = null;
+    s.under = false;
+    s.grounded = false;
+    s.vx = Math.min(MAX_SPEED, s.whirlSpeed * 1.35 + 380);
+    s.vy = 140;
+    s.y = surface + 2;
+    s.angle = 0.1;
+    s.airTime = 0;
+    s.airRot = 0;
+    s.whirlCd = 1.2;
+    s.flow += 500;
+    ev.whirlOut = true;
+  }
+}
+
 /** Ground contact and air flight for one sub-step. */
 function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvents, hazards: boolean): void {
+  if (s.rail) {
+    grind(s, t, dt, ev);
+    return;
+  }
+  if (s.whirl) {
+    spin(s, t, dt, ev);
+    return;
+  }
   if (s.under) {
     underwater(s, t, holding, dt, ev);
     return;
@@ -177,6 +267,18 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
     const vy = s.speed * sin;
     s.vx = vx;
     s.vy = vy;
+    if (s.whirlCd <= 0) {
+      const wl = t.whirlAt(s.x);
+      if (wl) {
+        s.whirl = wl;
+        s.whirlT = 0;
+        s.whirlSpeed = s.speed;
+        s.grounded = false;
+        s.under = true;
+        ev.whirlIn = true;
+        return;
+      }
+    }
     if (holding && k < PLUNGE_SLOPE && s.speed > PLUNGE_SPEED) {
       // Dolphin plunge: pierce the surface into the abyss.
       s.grounded = false;
@@ -202,19 +304,51 @@ function move(s: Spirit, t: Terrain, holding: boolean, dt: number, ev: StepEvent
   }
 
   const rising = s.vy > 0;
-  s.vy -= g * dt;
+  // A little hang at the top of every jump, and moon leaps in the eclipse.
+  const hang = !holding && Math.abs(s.vy) < 170 ? 0.84 : 1;
+  s.vy -= g * gravityScale(s.x) * hang * dt;
   s.vx = Math.max(MIN_SPEED * 0.85, s.vx * (1 - 0.02 * dt));
+  const x0 = s.x;
+  const y0 = s.y;
   s.x += s.vx * dt;
   s.y += s.vy * dt;
   s.airTime += dt;
+  // A thunderhead's updraft throws you upward.
+  if (t.cloudAt(s.x, s.y)) {
+    if (s.vy < 1900) s.vy = Math.min(1900, s.vy + 2600 * dt);
+    s.vx = Math.min(MAX_SPEED, s.vx + 300 * dt);
+    ev.storm = true;
+  }
+  // A sky-rail: cross the ribbon, from either side, and the board locks on.
+  if (s.railCd <= 0) {
+    const rl = t.railAt(s.x);
+    if (rl) {
+      const yr = railY(rl, s.x);
+      const before = y0 - railY(rl, x0);
+      const after = s.y - yr;
+      if (before * after <= 0 || Math.abs(after) < 12) {
+        s.rail = rl;
+        s.speed = clamp(Math.hypot(s.vx, s.vy), MIN_SPEED, MAX_SPEED);
+        s.y = yr;
+        s.airRot = 0;
+        s.flow += 300;
+        ev.railOn = true;
+        return;
+      }
+    }
+  }
   // Holding in the air tucks into a backflip; letting go settles the board to the flight path.
   s.holdAir = holding ? s.holdAir + dt : 0;
   if (holding && s.holdAir > FLIP_DELAY) {
     s.angle += s.flip * dt;
     s.airRot += s.flip * dt;
   } else {
-    const d = wrap(Math.atan2(s.vy, s.vx) - s.angle);
-    s.angle += clamp(d, -ALIGN_RATE * dt, ALIGN_RATE * dt);
+    // Close to the water and falling, the board leans towards the slope for you.
+    const flight = Math.atan2(s.vy, s.vx);
+    const near = s.vy < 0 && s.y - t.height(s.x) < 110;
+    const target = near ? flight + wrap(Math.atan(t.slope(s.x)) - flight) * 0.5 : flight;
+    const rate = near ? ALIGN_RATE * 1.8 : ALIGN_RATE;
+    s.angle += clamp(wrap(target - s.angle), -rate * dt, rate * dt);
   }
   const ground = t.height(s.x);
   const alt = s.y - ground;
@@ -289,9 +423,20 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
   ev.gem = 0;
   ev.split = false;
   ev.thread = false;
+  ev.railOn = false;
+  ev.railOff = false;
+  ev.shrine = false;
+  ev.blessing = false;
+  ev.whirlIn = false;
+  ev.whirlOut = false;
+  ev.storm = false;
+  ev.rune = false;
   s.frames++;
   s.surge = Math.max(0, s.surge - dt);
   s.surgeCd = Math.max(0, s.surgeCd - dt);
+  s.bless = Math.max(0, s.bless - dt);
+  s.railCd = Math.max(0, s.railCd - dt);
+  s.whirlCd = Math.max(0, s.whirlCd - dt);
   t.frame = s.frames;
   t.trigger(s.x);
   s.px = s.x;
@@ -325,7 +470,7 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
         hy = a < b ? r.y + off : r.y - off;
       } else d2 = ringDist2(s, r.x, r.y, dx, dy, len2);
       if (d2 < r.closest) r.closest = d2;
-      const catchR = (s.surge > 0 ? rr * SURGE_MAGNET : rr) * s.reach;
+      const catchR = (s.surge > 0 ? rr * SURGE_MAGNET : rr) * s.reach * (s.bless > 0 ? 1.5 : 1);
       if (d2 < catchR * catchR) {
         r.taken = true;
         s.ringsTaken++;
@@ -335,10 +480,37 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
         ev.ringCenter = Math.max(0, 1 - Math.sqrt(d2) / rr);
         ev.thread = r.splitAt >= 0;
         s.flow += 250;
+        if (r.shrine >= 0) {
+          // Shrine gates must be threaded in order; the third begins a Spirit Blessing.
+          ev.shrine = true;
+          if (r.order === 0) {
+            s.chainId = r.shrine;
+            s.chainN = 1;
+          } else if (s.chainId === r.shrine && s.chainN === r.order) s.chainN++;
+          else {
+            s.chainId = -1;
+            s.chainN = 0;
+          }
+          if (s.chainN >= 3) {
+            s.bless = BLESS_TIME;
+            s.chainId = -1;
+            s.chainN = 0;
+            ev.blessing = true;
+          }
+        }
+        if (r.rune) {
+          ev.rune = true;
+          s.flow += 2000;
+          if (!s.under) s.vx = Math.min(MAX_SPEED, s.vx + 220);
+        }
         if (s.grounded) s.speed = Math.min(MAX_SPEED, s.speed + 160);
         else if (!s.under) s.vx = Math.min(MAX_SPEED, s.vx + 160);
       } else if (r.x + r.r < s.x) {
         r.passed = true;
+        if (r.shrine >= 0) {
+          s.chainId = -1;
+          s.chainN = 0;
+        }
         if (r.closest < r.r * r.r * 2.6) ev.nearMiss = true;
       }
     }
@@ -359,10 +531,30 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
     }
     if (hazards && !s.under && !ev.crash) {
       for (const sp of ch.spikes) {
-        if (Math.abs(s.x - sp.x) < 26 && s.y - t.height(sp.x) < 34 && spikeUp(sp, s.frames)) ev.crash = "spike";
+        if (Math.abs(s.x - sp.x) < 26 && s.y - t.height(sp.x) < 34 && spikeUp(sp, s.frames)) {
+          if (s.bless <= 0) ev.crash = "spike";
+          else if (!sp.taken) {
+            sp.taken = true;
+            s.gems++;
+            ev.gem++;
+            ev.gemX = sp.x;
+            ev.gemY = t.height(sp.x) + 20;
+            s.flow += 400;
+          }
+        }
       }
       for (const gt of ch.gates) {
-        if (s.px < gt.x && s.x >= gt.x && gateShut(gt, s.frames) && s.y < t.height(gt.x) + GATE_HEIGHT) ev.crash = "gate";
+        if (s.px < gt.x && s.x >= gt.x && gateShut(gt, s.frames) && s.y < t.height(gt.x) + GATE_HEIGHT) {
+          if (s.bless <= 0) ev.crash = "gate";
+          else if (!gt.taken) {
+            gt.taken = true;
+            s.gems++;
+            ev.gem++;
+            ev.gemX = gt.x;
+            ev.gemY = t.height(gt.x) + 120;
+            s.flow += 400;
+          }
+        }
       }
     }
   }

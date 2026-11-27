@@ -86,6 +86,7 @@ export function updateRun(r: Run, s: Spirit, ev: StepEvents, dx: number, dt: num
 
   r.mult = (1 + Math.min(2, s.combo * 0.1)) * (1 + r.tier * 0.25);
   let gain = dx * 0.02 * r.mult;
+  if (s.rail) gain += 60 * dt * r.mult;
   if (ev.landing === "perfect") gain += 100 * s.combo * (1 + r.tier * 0.25);
   if (ev.ring) gain += 250 * ev.ring * r.mult;
   r.score += gain;
@@ -104,6 +105,7 @@ export function updateRun(r: Run, s: Spirit, ev: StepEvents, dx: number, dt: num
   let d = (slow ? SLOW_DRAIN : DRAIN) * dt;
   if (r.gentle) d *= 0.35;
   r.light -= d;
+  if (s.rail) r.light += 0.1 * dt;
   if (ev.landing === "perfect") r.light += 0.1 + Math.min(0.06, s.combo * 0.01);
   else if (ev.landing === "good") r.light += 0.04;
   else if (ev.landing === "rough") r.light -= 0.06;
