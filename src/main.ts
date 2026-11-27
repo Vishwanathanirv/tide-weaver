@@ -15,6 +15,9 @@ import { BOARDS, MAX_LEVEL, SCARVES, SKINS, UPGRADES, boardOf, drainOf, pullOf, 
 import { GEMS_PER_GOAL, GEMS_PER_RANK, allDone, check, deal, emptyCounters, questText, type Counters } from "./quests";
 import { Rival } from "./rival";
 import { Harmony } from "./harmony";
+import { howToHtml } from "./howto";
+import { setStats, statsConfigured, track } from "./telemetry";
+import { gameplay, rewarded, rewardedAvailable } from "./ads";
 import { Recorder, Replay, decode, encode, type Ghost } from "./ghost";
 import { ClipRecorder, clipsSupported } from "./clip";
 
@@ -93,6 +96,7 @@ const vault = new Vault(storage());
 let save: SaveData = vault.load();
 const score = new Score();
 const harmony = new Harmony(score);
+setStats(save.playStats);
 score.setMuted(save.muted);
 score.setVolumes(save.musicVolume, save.notesVolume);
 const lofi = new LoFi(score);
@@ -110,6 +114,7 @@ const ICON = {
   aura: "M12 3l2.6 5.6L20 9.5l-4 4 1 5.8L12 16.6 7 19.3l1-5.8-4-4 5.4-.9z",
   sun: "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM12 1v3M12 20v3M1 12h3M20 12h3",
   pause: "M8 5v14M16 5v14",
+  help: "M9.3 9.2a2.8 2.8 0 1 1 3.9 2.6c-.8.4-1.2 1-1.2 1.7M12 17.2h.01",
 };
 
 ui.innerHTML = `
@@ -127,6 +132,7 @@ ui.innerHTML = `
     <button id="b-sound" aria-label="Sound" data-tip="Sound · M">${icon(save.muted ? ICON.mute : ICON.sound)}</button>
     <button id="b-aura" aria-label="Auras and milestones" data-tip="Auras">${icon(ICON.aura)}</button>
     <button id="b-daily" aria-label="Today's wave" data-tip="Today's wave">${icon(ICON.sun)}</button>
+    <button id="b-help" aria-label="How to play" data-tip="How to play · H">${icon(ICON.help)}</button>
     <button id="b-pause" aria-label="Pause" data-tip="Pause · P">${icon(ICON.pause)}</button>
   </nav>
   <div class="trip" id="trip" aria-hidden="true"><i id="trip-fill"></i><span style="left:33.3%"></span><span style="left:66.6%"></span><b id="trip-name">Twilight Shallows</b></div>
@@ -206,6 +212,7 @@ let chainPts = 0;
 let respawn = -1;
 /** The motif greets the first ride of each visit. */
 let greeted = false;
+let runTracked = false;
 let obsX = 0;
 let obsY = 0;
 let obsA = 0;
@@ -331,6 +338,7 @@ function newRun(retry = false): void {
   runUp = { magnet: save.up.magnet, core: save.up.core, boost: save.up.boost };
   usedWind = false;
   pitchChain = 0;
+  runTracked = false;
   if (import.meta.env.DEV && params.get("km")) {
     // Dev only: start further out to inspect later biomes.
     spirit.x = spirit.px = Number(params.get("km")) * 10000;
@@ -656,6 +664,7 @@ window.addEventListener("keydown", (e) => {
     surgeNow();
   } else if (e.code === "KeyC") void saveClip();
   else if (e.code === "KeyM") toggleSound();
+  else if (e.code === "KeyH" && !e.repeat) openHowTo();
   else if (e.code === "KeyR") document.body.classList.toggle("clean");
 });
 window.addEventListener("keyup", (e) => keys.delete(e.code));
@@ -905,6 +914,11 @@ function openWorkshop(): void {
   `);
 }
 
+function openHowTo(): void {
+  track("tutorial_open", { runs: save.stats.runs });
+  openPanel(howToHtml());
+}
+
 function openSettings(): void {
   openPanel(`
     <h2 id="panel-title">Settings</h2>
@@ -915,6 +929,7 @@ function openSettings(): void {
     <h3>Visuals</h3>
     <div class="row">
       <button data-act="motion" aria-pressed="${save.reducedMotion}">Calm motion ${save.reducedMotion ? "on" : "off"}</button>
+      ${statsConfigured() ? `<button data-act="stats" aria-pressed="${save.playStats}">Play stats ${save.playStats ? "on" : "off"}</button>` : ""}
       <button data-act="haptics" aria-pressed="${save.haptics}">Haptics ${save.haptics ? "on" : "off"}</button>
       <button data-act="flashes" aria-pressed="${save.flashes}">Flashes ${save.flashes ? "on" : "off"}</button>
       <button data-act="particles" aria-pressed="${save.lightParticles}">Particles ${save.lightParticles ? "light" : "full"}</button>
@@ -991,6 +1006,7 @@ function openGameOver(): void {
     <p class="song" aria-label="Your run as notes">${songStrip()}</p>
     <div class="row">
       <button class="primary big" data-act="again" data-autofocus>Ride again <kbd>Space</kbd></button>
+      ${!usedWind && mode !== "zen" && rewardedAvailable() ? `<button data-act="windad">Watch to continue · free</button>` : ""}
       ${!usedWind && mode !== "zen" ? `<button data-act="wind" ${save.bank >= WIND_COST ? "" : "data-poor"}>Second Wind · ${WIND_COST} gems</button>` : ""}
       <button data-act="share">Challenge a friend</button>
       <button data-act="postcard">Postcard</button>
@@ -1006,14 +1022,17 @@ function openGameOver(): void {
 }
 
 /** Pays gems to continue a run whose light faded, once per run. The run can no longer be shared as a ghost. */
-function secondWind(): void {
+function secondWind(viaAd = false): void {
   if (usedWind || !over || mode === "zen") return;
-  if (save.bank < WIND_COST) {
-    toast(`${WIND_COST - save.bank} more gems needed`);
-    return;
+  if (!viaAd) {
+    if (save.bank < WIND_COST) {
+      toast(`${WIND_COST - save.bank} more gems needed`);
+      return;
+    }
+    save.bank -= WIND_COST;
   }
-  save.bank -= WIND_COST;
   usedWind = true;
+  track("second_wind", { how: viaAd ? "video" : "gems" });
   persist();
   run.ended = false;
   run.cause = "";
@@ -1062,6 +1081,7 @@ panel.addEventListener("click", async (e) => {
         save.up[upId] = lv + 1;
         persist();
         toast(`${u.name} Lv ${lv + 1}`);
+        track("upgrade", { id: u.id, level: lv + 1 });
       }
     }
     openWorkshop();
@@ -1105,6 +1125,12 @@ panel.addEventListener("click", async (e) => {
       break;
     case "wind":
       secondWind();
+      break;
+    case "windad":
+      void rewarded().then((ok) => {
+        if (ok) secondWind(true);
+        else toast("No video right now");
+      });
       break;
     case "zen":
       switchMode("zen");
@@ -1155,6 +1181,12 @@ panel.addEventListener("click", async (e) => {
       break;
     case "sky":
       save.sky = save.sky >= STYLE_COUNT - 1 ? -1 : save.sky + 1;
+      persist();
+      openSettings();
+      break;
+    case "stats":
+      save.playStats = !save.playStats;
+      setStats(save.playStats);
       persist();
       openSettings();
       break;
@@ -1259,6 +1291,7 @@ pills.addEventListener("click", (e) => {
       save.chest = today;
       persist();
       toast(`Daily chest · +${gems} gems`);
+      track("chest", { gems });
       syncPills();
     }
     return;
@@ -1283,6 +1316,7 @@ surgeBtn.addEventListener("pointerdown", (e) => {
   }
 });
 $("b-aura").addEventListener("click", () => openAuras());
+$("b-help").addEventListener("click", () => openHowTo());
 $("b-pause").addEventListener("click", () => (over ? openGameOver() : openPause()));
 $("b-daily").addEventListener("click", () => {
   wake();
@@ -1791,6 +1825,8 @@ function tick(dt: number): void {
 
   if (rev.ended) {
     endFrame = spirit.frames;
+    gameplay(false);
+    track("run_end", { mode, km: Math.round((spirit.distance / 10000) * 100) / 100, seconds: Math.round(spirit.frames / 60), score: Math.floor(run.score), rings: spirit.ringsTaken, gems: spirit.gems, runs: save.stats.runs, why: run.cause.slice(0, 18) });
     save.ends[Math.min(11, Math.floor(spirit.distance / 2500))]++;
     if (chain.length) {
       run.score += Math.round(chainPts * (1 + 0.25 * (chain.length - 1)) * run.mult);
@@ -1871,6 +1907,11 @@ function frame(now: number): void {
       achClock = 0;
       checkAchievements();
     }
+  }
+  if (started && !runTracked) {
+    runTracked = true;
+    track("run_start", { mode, runs: save.stats.runs, board: runBoard, boost: save.up.boost, skin: save.skin });
+    gameplay(true);
   }
   if (started && !greeted) {
     greeted = true;

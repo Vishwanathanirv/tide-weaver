@@ -42,6 +42,8 @@ export interface SaveData {
   flashes: boolean;
   /** Short vibration clicks on touch devices. */
   haptics: boolean;
+  /** Anonymous play stats (only sent when the build has a stats key). */
+  playStats: boolean;
   /** Abyss gems in the bank, spent in the workshop. */
   bank: number;
   /** Gear ids owned, and the ones worn. */
@@ -94,6 +96,7 @@ export function defaults(): SaveData {
     shake: 1,
     flashes: true,
     haptics: true,
+    playStats: true,
     bank: 0,
     owned: ["wake", "plain"],
     board: "wake",
@@ -176,6 +179,7 @@ export function sanitize(raw: unknown): SaveData {
     shake: Math.min(1, num(r.shake, d.shake)),
     flashes: r.flashes !== false,
     haptics: r.haptics !== false,
+    playStats: r.playStats !== false,
     bank: Math.floor(num(r.bank, 0)),
     owned,
     board: owned.includes(String(r.board)) && BOARD_IDS.includes(String(r.board)) ? String(r.board) : "wake",
