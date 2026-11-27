@@ -107,6 +107,8 @@ export const KM_UNITS = 10000;
 /** One beat at 88 BPM, in 60 Hz physics steps. */
 export const BEAT_STEPS = 41;
 export const BIOMES = ["Twilight Shallows", "Mirage Straits", "Obsidian Storm"] as const;
+/** Spikes, gates and collapses never appear before this x. */
+export const OPENING_SAFE = 2500;
 export const GATE_HEIGHT = 300;
 const COLLAPSE_DEPTH = 120;
 const COLLAPSE_WIDTH = 180;
@@ -260,6 +262,32 @@ export class Terrain {
     return null;
   }
 
+  /**
+   * The scripted opening, the first 4500 units (450 m, about 10 s): two welcoming rings, a low
+   * easy Sky-Rail, a line of four rings and a whirlpool. No traps before OPENING_SAFE.
+   * Fixed positions, no random draws, so it never shifts anything else.
+   */
+  private opening(ch: Chunk, index: number): void {
+    if (index === 0) {
+      for (const x of [1050, 1300]) ch.rings.push(mkRing(x, this.gb(x) + 250 + (x - 1050) * 0.2, 58));
+      const x0 = 1650;
+      const x1 = 2350;
+      let y0 = this.gb(x0) + 330;
+      let y1 = y0 + 40;
+      let lift = 0;
+      for (let x = x0; x <= x1; x += 50) lift = Math.max(lift, this.gb(x) + 300 - (y0 + ((y1 - y0) * (x - x0)) / (x1 - x0)));
+      y0 += lift;
+      y1 += lift;
+      ch.rails.push({ x0, x1, y0, y1, amp: 14, waves: 1, ph: 0 });
+    } else {
+      for (let i = 0; i < 4; i++) {
+        const x = 2650 + i * 330;
+        ch.rings.push(mkRing(x, this.gb(x) + 270 + Math.sin(i * 1.1) * 70, 60));
+      }
+      ch.whirls.push({ x: 3900 });
+    }
+  }
+
   rings(chunk: number): Ring[] {
     return this.chunk(chunk).rings;
   }
@@ -346,6 +374,7 @@ export class Terrain {
         ch.rings.push(rune);
       }
     }
+    if (index <= 1) this.opening(ch, index);
     this.cache.set(index, ch);
     if (this.cache.size > 64) {
       const oldest = this.cache.keys().next().value;

@@ -29,6 +29,8 @@ describe("surge", () => {
     for (let i = 0; i < Math.ceil(SURGE_COOLDOWN / STEP) + 2; i++) step(s, t, false, ev, STEP);
     expect(s.surge).toBe(0);
     expect(s.surgeCd).toBe(0);
+    // The scripted opening has a whirlpool at 390 m that a surging spirit reaches in this time.
+    s.under = false;
     expect(surge(s)).toBe(true);
   });
 

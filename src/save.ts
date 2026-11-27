@@ -40,6 +40,8 @@ export interface SaveData {
   shake: number;
   /** Lightning, beat lifts and other full-screen flashes. */
   flashes: boolean;
+  /** Short vibration clicks on touch devices. */
+  haptics: boolean;
   /** Abyss gems in the bank, spent in the workshop. */
   bank: number;
   /** Gear ids owned, and the ones worn. */
@@ -85,6 +87,7 @@ export function defaults(): SaveData {
     lightParticles: false,
     shake: 1,
     flashes: true,
+    haptics: true,
     bank: 0,
     owned: ["wake", "plain"],
     board: "wake",
@@ -163,6 +166,7 @@ export function sanitize(raw: unknown): SaveData {
     lightParticles: r.lightParticles === true,
     shake: Math.min(1, num(r.shake, d.shake)),
     flashes: r.flashes !== false,
+    haptics: r.haptics !== false,
     bank: Math.floor(num(r.bank, 0)),
     owned,
     board: owned.includes(String(r.board)) && BOARD_IDS.includes(String(r.board)) ? String(r.board) : "wake",

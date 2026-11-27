@@ -813,3 +813,44 @@ kbd {
 @media (max-width: 480px) {
   .goalbar { max-width: 200px; font-size: 11px; }
 }
+
+/* Small screens: the score, tier and goals read about 38% larger, over a soft dark halo. */
+@media (max-width: 600px) {
+  .hud {
+    isolation: isolate;
+  }
+  .hud::before {
+    content: "";
+    position: absolute;
+    inset: -18px -48px -12px -24px;
+    z-index: -1;
+    pointer-events: none;
+    background: radial-gradient(ellipse at 32% 38%, rgba(4, 7, 18, 0.5), rgba(4, 7, 18, 0.22) 55%, transparent 78%);
+  }
+  .flow {
+    font-size: 41px;
+    text-shadow: 0 0 10px rgba(0, 0, 0, 0.6), 0 0 24px rgba(0, 0, 0, 0.45);
+  }
+  .unit {
+    font-size: 18px;
+  }
+  .mult,
+  .chain {
+    font-size: 18px;
+    text-shadow: 0 0 9px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 0, 0, 0.4);
+  }
+  .best {
+    font-size: 16px;
+  }
+  .goalbar {
+    max-width: min(78vw, 340px);
+    font-size: 16.5px;
+    line-height: 1.45;
+    opacity: 1;
+    text-shadow: 0 0 8px rgba(0, 0, 0, 0.7), 0 0 18px rgba(0, 0, 0, 0.5);
+  }
+  .light {
+    width: 160px;
+    height: 5px;
+  }
+}

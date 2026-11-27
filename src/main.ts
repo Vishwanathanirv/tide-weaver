@@ -231,6 +231,17 @@ let railHinted = false;
 /** Goals count things within one run. */
 let counters: Counters = emptyCounters();
 /** Everything needed to replay this run as someone else's ghost. */
+/** Crisp, short clicks. Guarded for browsers without vibration (iOS Safari). */
+function buzz(p: number | number[]): void {
+  if (!save.haptics || save.reducedMotion) return;
+  try {
+    navigator.vibrate?.(p);
+  } catch {
+    /* ignore */
+  }
+}
+/** Consecutive rings and clean landings; resets on a flat slam or a wipe-out. */
+let pitchChain = 0;
 const rec = new Recorder();
 let runUp = { magnet: 0, core: 0 };
 let recValid = false;
@@ -291,6 +302,7 @@ function newRun(retry = false): void {
   boardFx = board.fx;
   spirit = makeSpirit(terrain, board.dive, board.flip, board.reach, pullOf(save.up.magnet), surgeCoolOf(save.up.core));
   runUp = { magnet: save.up.magnet, core: save.up.core };
+  pitchChain = 0;
   if (import.meta.env.DEV && params.get("km")) {
     // Dev only: start further out to inspect later biomes.
     spirit.x = spirit.px = Number(params.get("km")) * 10000;
@@ -806,6 +818,7 @@ function openSettings(): void {
     <h3>Visuals</h3>
     <div class="row">
       <button data-act="motion" aria-pressed="${save.reducedMotion}">Calm motion ${save.reducedMotion ? "on" : "off"}</button>
+      <button data-act="haptics" aria-pressed="${save.haptics}">Haptics ${save.haptics ? "on" : "off"}</button>
       <button data-act="flashes" aria-pressed="${save.flashes}">Flashes ${save.flashes ? "on" : "off"}</button>
       <button data-act="particles" aria-pressed="${save.lightParticles}">Particles ${save.lightParticles ? "light" : "full"}</button>
       <button data-act="sky">Sky: ${save.sky < 0 ? "changing" : STYLES[save.sky]}</button>
@@ -1012,6 +1025,12 @@ panel.addEventListener("click", async (e) => {
     case "sky":
       save.sky = save.sky >= STYLE_COUNT - 1 ? -1 : save.sky + 1;
       persist();
+      openSettings();
+      break;
+    case "haptics":
+      save.haptics = !save.haptics;
+      persist();
+      buzz(12);
       openSettings();
       break;
     case "flashes":
@@ -1391,6 +1410,7 @@ function tick(dt: number): void {
     const impact = Math.min(1, (Math.sin(ev.landMiss) * sp) / 900);
     if (ev.landing === "rough" || impact > 0.5) {
       // Slammed in flat: a deep thud, a tall column of water and a shake.
+      pitchChain = 0;
       score.thud(0.35 + impact * 0.65);
       splashColumn(impact, spirit.x, ground);
       renderer.kick(0.2 + impact * 0.5);
@@ -1426,11 +1446,9 @@ function tick(dt: number): void {
   if (ev.landing === "perfect") {
     if (spirit.combo >= 5 && spirit.combo % 5 === 0) score.motif(zone);
     else {
-      const d = 4 + Math.min(8, spirit.combo);
-      score.note(d, zone, 0.9);
-      score.note(d + 2, zone, 0.7, 1);
-      score.note(d + 4, zone, 0.55, 2);
+      score.chain(pitchChain++, zone, 0.9);
     }
+    buzz(20);
     save.stats.perfects++;
     if (spirit.combo > save.stats.bestStreak) save.stats.bestStreak = spirit.combo;
     renderer.fx.burst(spirit.x, spirit.y, 26 + Math.min(20, spirit.combo * 2), 420, [255, 236, 190], 0, 0.9);
@@ -1441,16 +1459,20 @@ function tick(dt: number): void {
     renderer.punchIn(0.025 + Math.min(0.03, spirit.combo * 0.005));
     unlockAuras();
   } else if (ev.landing === "good") {
-    score.note(3, zone, 0.35);
+    score.chain(pitchChain++, zone, 0.6);
+    buzz(20);
   } else if (ev.landing === "rough") {
+    pitchChain = 0;
+    buzz([30, 20, 40]);
     score.splash();
     renderer.fx.spawn(spirit.x, spirit.y, 0, 0, 0.8, 1, [210, 235, 255], 1);
     renderer.fx.burst(spirit.x, spirit.y, 8, 220, [200, 230, 255], 0, 0.6);
   }
   if (ev.apex) score.note(Math.min(14, 2 + alt / 130), zone, 0.5);
   if (ev.ring) {
-    score.note(12, 1, 0.9);
-    score.note(14, 1, 0.7, 1);
+    score.chain(pitchChain++, 1, 0.9);
+    if (ev.ringCenter > 0.88) buzz([15, 30, 25]);
+    else buzz(12);
     save.stats.rings += ev.ring;
     renderer.fx.burst(ev.ringX, ev.ringY, 34, 380, [255, 214, 140], 0, 1);
     renderer.popup(`+${fmt(250 * run.mult)}`, ev.ringX, ev.ringY);
@@ -1471,6 +1493,7 @@ function tick(dt: number): void {
   }
   if (ev.breach) {
     addTrick("Abyss Breach", 500);
+    buzz([15, 30, 25]);
     score.note(11, 1, 0.9);
     score.note(14, 1, 0.7, 1);
     renderer.fx.burst(spirit.x, ground, 40, 520, [200, 240, 255], 0, 1);
@@ -1517,6 +1540,7 @@ function tick(dt: number): void {
     renderer.showBanner(BIOMES[biome]);
   }
   if (ev.crash && hazardsOn() && respawn < 0 && !rev.ended) {
+    pitchChain = 0;
     renderer.shatter(spirit.x, spirit.y, [255, 210, 160]);
     score.splash();
     renderer.callout("skill issue", "skill", spirit.x, spirit.y, true);

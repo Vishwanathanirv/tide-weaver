@@ -5,6 +5,8 @@
  */
 
 const PENTA = [0, 2, 4, 7, 9];
+/** Semitones above the root for scale degrees 1 2 3 5 6 8 9. */
+const CHAIN = [0, 2, 4, 7, 9, 12, 14];
 const ROOT = 62; // D4: the melody stays in D major pentatonic, so any note fits any chord.
 const CHORDS = [
   [50, 57, 66], // D  : twilight
@@ -407,6 +409,15 @@ export class Score {
     this.play(degree, instrument, velocity, this.nextSlot() + later * GRID);
   }
 
+  /** Rising pitch chain on consecutive rings and clean landings: 1 2 3 5 6 8 9 of the D major scale, then it holds. */
+  chain(step: number, instrument = 1, velocity = 0.9, later = 0): void {
+    const i = Math.max(0, Math.min(CHAIN.length - 1, Math.floor(step)));
+    this.remember(i * 2);
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running") return;
+    this.playMidi(ROOT + 12 + CHAIN[i], instrument, velocity * (0.85 + 0.03 * i), this.nextSlot() + later * GRID);
+  }
+
   /** The song is kept even when sound is off, so every run has a share card. */
   private remember(degree: number): void {
     this.song.push(Math.max(0, Math.min(14, Math.round(degree))));
@@ -414,7 +425,10 @@ export class Score {
   }
 
   private play(degree: number, instrument: number, velocity: number, when: number): void {
-    const midi = degreeToMidi(degree);
+    this.playMidi(degreeToMidi(degree), instrument, velocity, when);
+  }
+
+  private playMidi(midi: number, instrument: number, velocity: number, when: number): void {
     const v = 0.22 * velocity;
     const f = hz(midi);
     switch (instrument) {

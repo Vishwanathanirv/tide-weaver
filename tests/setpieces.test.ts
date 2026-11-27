@@ -30,9 +30,9 @@ function firstCloud(t: Terrain): Cloud {
 }
 
 describe("sky-rails", () => {
-  it("float well above the waves and never in the first two chunks", () => {
+  it("float well above the waves; only the scripted opening has one before chunk 2", () => {
     const t = new Terrain(SEED);
-    expect(t.chunk(0).rails).toHaveLength(0);
+    expect(t.chunk(0).rails).toHaveLength(1);
     expect(t.chunk(1).rails).toHaveLength(0);
     let found = 0;
     for (let c = 2; c < 60; c += 2) {
