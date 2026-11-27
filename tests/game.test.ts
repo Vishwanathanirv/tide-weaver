@@ -12,7 +12,7 @@ function ride(seed: number, steps: number): { s: Spirit; takeoffs: number; perfe
   let takeoffs = 0;
   let landings = 0;
   for (let i = 0; i < steps; i++) {
-    const hold = s.grounded ? t.slope(s.x) < 0 : t.slope(s.x + s.vx * 0.25) < 0 && s.vy < 200;
+    const hold = s.grounded && t.slope(s.x) < 0 && t.slope(s.x) > -0.55;
     step(s, t, hold, ev);
     if (ev.takeoff) takeoffs++;
     if (ev.landing) landings++;
@@ -70,8 +70,11 @@ describe("physics", () => {
         expect(s.speed).toBeGreaterThanOrEqual(MIN_SPEED);
         expect(s.speed).toBeLessThanOrEqual(MAX_SPEED);
         expect(s.y).toBeCloseTo(t.height(s.x), 6);
-      } else {
+      } else if (!s.under) {
         expect(s.y).toBeGreaterThan(t.height(s.x));
+      } else {
+        expect(s.y).toBeLessThanOrEqual(t.height(s.x));
+        expect(s.y).toBeGreaterThanOrEqual(t.height(s.x) - 421);
       }
     }
   });

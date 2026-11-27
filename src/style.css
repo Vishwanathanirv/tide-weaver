@@ -613,3 +613,13 @@ kbd {
     text-align: center;
   }
 }
+
+.chain {
+  max-width: min(60vw, 420px);
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #9fffe0;
+  text-shadow: 0 0 10px rgba(159, 255, 224, 0.5);
+  font-variant-numeric: tabular-nums;
+}

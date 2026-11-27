@@ -3,6 +3,8 @@ import { RING_CHUNK, type Terrain } from "./terrain";
 import type { Aura } from "./save";
 import { mulberry32 } from "./rng";
 import type { CalloutKind } from "./juice";
+import { Surfer } from "./surfer";
+import { abyss, caustics, hazards, type View } from "./world";
 
 type RGB = [number, number, number];
 
@@ -177,6 +179,10 @@ export interface FrameState {
   tier: number;
   /** World x of the best distance so far, or -1. */
   bestX: number;
+  /** Physics frame, for beat-timed hazards. */
+  frame: number;
+  /** Hazards can hurt (journey and daily, after the tips). */
+  hazardsLive: boolean;
 }
 
 export class Renderer {
@@ -215,6 +221,8 @@ export class Renderer {
   private bars = 0;
   private barsTarget = 0;
   private bass = 0;
+  private surfer = new Surfer();
+  private view: View = { ctx: null as unknown as CanvasRenderingContext2D, w: 1, h: 1, scale: 1, sx: (x) => this.sx(x), sy: (y) => this.sy(y), wx: (x) => this.wx(x) };
   private calls: { text: string; kind: CalloutKind; x: number; y: number; life: number; big: boolean }[] = [];
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -281,6 +289,18 @@ export class Renderer {
     for (const w of this.waves) w.life = 0;
     for (const c of this.calls) c.life = 0;
     this.barsTarget = 0;
+    this.surfer.reset();
+  }
+
+  /** A wipe-out: the rider bursts into glowing shards. */
+  shatter(x: number, y: number, rgb: [number, number, number]): void {
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2 + Math.random() * 0.3;
+      const sp = 260 + Math.random() * 420;
+      this.fx.spawn(x, y, Math.cos(a) * sp, Math.sin(a) * sp + 180, 0.8 + Math.random() * 0.6, 4 + Math.random() * 5, rgb, 3);
+    }
+    this.kick(0.6);
+    this.punchIn(0.08);
   }
 
   /** Letterbox bars for LOCKED IN. */
@@ -342,15 +362,15 @@ export class Renderer {
     this.glow = Math.min(1.4, this.glow + strength);
   }
 
-  private sx(x: number): number {
+  sx(x: number): number {
     return (x - this.camX) * this.scale + this.w * 0.32;
   }
 
-  private sy(y: number): number {
+  sy(y: number): number {
     return this.h * this.horizon - (y - this.camY) * this.scale;
   }
 
-  private wx(sx: number): number {
+  wx(sx: number): number {
     return (sx - this.w * 0.32) / this.scale + this.camX;
   }
 
@@ -370,7 +390,8 @@ export class Renderer {
     this.scale = this.zoom * (1 + (f.reducedMotion ? 0 : this.punch));
     this.bars += (this.barsTarget - this.bars) * (1 - Math.exp(-f.dt * 5));
     this.camX = px;
-    const targetY = ground + Math.max(0, alt - 2200) * 0.85;
+    const depth = Math.max(0, ground - py);
+    const targetY = ground + Math.max(0, alt - 2200) * 0.85 - depth * 0.85;
     this.camY = this.ready ? lerp(this.camY, targetY, 1 - Math.exp(-f.dt * 4)) : targetY;
     this.ready = true;
     this.fx.update(f.dt, f.time);
@@ -390,6 +411,13 @@ export class Renderer {
     this.ringsLayer(f);
     this.seaLayer(f, wt);
     this.underwater(f, wt);
+    this.view.ctx = ctx;
+    this.view.w = w;
+    this.view.h = h;
+    this.view.scale = this.scale;
+    caustics(this.view, f.terrain, f.time, f.spirit.under);
+    abyss(this.view, f.terrain, f.time);
+    hazards(this.view, f.terrain, f.frame, f.hazardsLive);
     this.trailLayer(f, px, py);
     this.particlesLayer(f, wt);
     this.spiritLayer(f, px, py);
@@ -406,6 +434,10 @@ export class Renderer {
     // As the light fades, the night closes in.
     if (f.light < 0.999) {
       ctx.fillStyle = `rgba(4,4,16,${(1 - f.light) * 0.5})`;
+      ctx.fillRect(-20, -20, w + 40, h + 40);
+    }
+    if (f.spirit.under) {
+      ctx.fillStyle = "rgba(0,30,60,0.22)";
       ctx.fillRect(-20, -20, w + 40, h + 40);
     }
     if (this.vignette) ctx.drawImage(this.vignette, 0, 0, w, h);
@@ -830,10 +862,13 @@ export class Renderer {
     for (let c = Math.max(0, from); c <= to; c++) {
       for (const r of f.terrain.rings(c)) {
         if (r.taken) continue;
+        const split = r.splitAt >= 0;
+        const off = split ? Math.min(80, (f.frame - r.splitAt) * 4) : 0;
+        for (const sign of split ? [1, -1] : [0]) {
         const x = this.sx(r.x);
-        const y = this.sy(r.y);
+        const y = this.sy(r.y + sign * off);
         const breathe = 1 + 0.05 * Math.sin(f.time * 3 + r.x);
-        const rad = r.r * this.scale * breathe;
+        const rad = r.r * this.scale * breathe * (split ? 0.7 : 1);
         ctx.globalCompositeOperation = "lighter";
         ctx.strokeStyle = css(accent, 0.18);
         ctx.lineWidth = 10;
@@ -850,6 +885,7 @@ export class Renderer {
         for (let i = 0; i < 3; i++) {
           const a = f.time * 1.4 + (i * Math.PI * 2) / 3;
           ctx.fillRect(x + Math.cos(a) * rad - 1.5, y + Math.sin(a) * rad - 1.5, 3, 3);
+        }
         }
       }
     }
@@ -935,6 +971,16 @@ export class Renderer {
         ctx.fillRect(x - 4, y - 4, 8, 8);
         ctx.fillStyle = col + a + ")";
         ctx.fillRect(x - 1, y - 1, 2.5, 2.5);
+      } else if (k === 3) {
+        const sz = fx.size[i] * (0.6 + t);
+        const a = f.time * 9 + i;
+        ctx.fillStyle = col + t + ")";
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(a) * sz, y + Math.sin(a) * sz);
+        ctx.lineTo(x + Math.cos(a + 2.3) * sz * 0.7, y + Math.sin(a + 2.3) * sz * 0.7);
+        ctx.lineTo(x + Math.cos(a + 4) * sz * 0.5, y + Math.sin(a + 4) * sz * 0.5);
+        ctx.closePath();
+        ctx.fill();
       } else {
         const sz = fx.size[i] * (0.5 + t);
         ctx.fillStyle = col + t + ")";
@@ -950,11 +996,10 @@ export class Renderer {
     const x = this.sx(px);
     const y = this.sy(py);
     const size = 10 * clamp(this.scale * 1.1, 0.75, 1.5);
-    const orb = mixPal(f.weights, (p) => p.orb, this.tmp);
     const halo = auraColor(f.aura, 1, f.time, this.tmp2);
     // Low light: the halo shrinks and flickers.
     const flick = f.light < 0.25 ? 0.6 + 0.4 * Math.sin(f.time * 18) : 1;
-    const hr = size * (2.5 + 2.5 * f.light) * flick;
+    const hr = size * (1.6 + 1.8 * f.light) * flick;
     ctx.globalCompositeOperation = f.weights[PAPER] > 0.5 ? "source-over" : "lighter";
     const g = ctx.createRadialGradient(x, y, 0, x, y, hr);
     g.addColorStop(0, css(halo, 0.55 * flick));
@@ -963,25 +1008,7 @@ export class Renderer {
     ctx.fillRect(x - hr, y - hr, hr * 2, hr * 2);
     ctx.globalCompositeOperation = "source-over";
 
-    const angle = -Math.atan2(s.vy, s.vx);
-    const open = f.holding ? 0.15 : s.grounded ? 0.45 : 0.7 + 0.3 * Math.sin(f.time * 9);
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    ctx.fillStyle = css(orb, 0.85);
-    for (const side of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(-size * 0.4, 0);
-      ctx.lineTo(-size * 2.6, side * size * 2.2 * open);
-      ctx.lineTo(-size * 1.2, side * size * 0.3);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.fillStyle = css(orb);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, size * 1.15, size * 0.85, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    this.surfer.draw(ctx, x, y, s.angle, size, `${halo[0] | 0},${halo[1] | 0},${halo[2] | 0}`, f.holding && !s.grounded && !s.under, s.grounded, s.under, f.speed, f.dt, f.light);
     // Diving: chevrons under the spirit show that your press is pulling it down.
     if (f.holding) {
       const pulse = 0.55 + 0.45 * Math.sin(f.time * 14);

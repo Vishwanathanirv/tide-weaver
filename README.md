@@ -6,6 +6,10 @@ A coralctrl game. Free, in the browser, no sign-up.
 
 ## Play
 
+- **In the air, hold** to backflip; let go and the board settles to your flight path. Land flat: clean flips bank big points. Land upside down and you shatter, back on the wave in 0.1 s.
+- **Dive into the abyss:** hold down a steep slope at speed to pierce the surface. Under water, collect sunken gems, ride warm jets, and let go to breach skyward.
+- **Trick chains:** backflips, breaches, rings, gems and split-ring threads chain together and bank on a clean landing.
+
 - **Press to start.** The spirit glides forward on its own; your only control is when to press.
 - **Hold** (Space, click or touch) to dive down a slope and gain speed. Let go at the bottom to fly off the next crest.
 - **Perfect dive:** land along a downslope. It builds your streak and speeds you up.
@@ -27,6 +31,14 @@ A coralctrl game. Free, in the browser, no sign-up.
 - **×3.0, LOCKED IN:** a bass drop, cinema bars, and the waves pulse with the bassline.
 - Surfing the water makes a soft skim that rises with your speed.
 - Callouts react to how you move: **clean** for a dead-centre ring (with a 30 ms freeze) or a razor-sharp landing, **inches** for a near miss, **skill issue** for a belly flop.
+
+## Biomes
+
+- **0 to 1 km, Twilight Shallows:** rolling swells and rings.
+- **1 to 2 km, Mirage Straits:** trick rings that split at the last second and crests that collapse under you.
+- **2 km on, Obsidian Storm:** crystal spikes and tide gates that move on the beat.
+
+Zen mode keeps every biome but nothing can hurt you.
 
 ## Modes
 

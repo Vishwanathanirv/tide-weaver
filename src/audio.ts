@@ -28,6 +28,7 @@ export class Score {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private music!: GainNode;
+  private muffle!: BiquadFilterNode;
   private musicLevel = 0.8;
   private notesLevel = 0.9;
   private notes!: GainNode;
@@ -92,7 +93,11 @@ export class Score {
     comp.release.value = 0.25;
     this.master = ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 0.85;
-    this.master.connect(comp).connect(ctx.destination);
+    // Underwater muffle: a low-pass that closes when you plunge.
+    this.muffle = ctx.createBiquadFilter();
+    this.muffle.type = "lowpass";
+    this.muffle.frequency.value = 20000;
+    this.master.connect(this.muffle).connect(comp).connect(ctx.destination);
 
     const verb = ctx.createConvolver();
     verb.buffer = this.impulse(ctx, 3.2);
@@ -176,6 +181,11 @@ export class Score {
     const t = this.ctx.currentTime;
     this.music.gain.setTargetAtTime(music, t, 0.05);
     this.notes.gain.setTargetAtTime(0.5 * notes, t, 0.05);
+  }
+
+  setUnderwater(on: boolean): void {
+    if (!this.ctx) return;
+    this.muffle.frequency.setTargetAtTime(on ? 700 : 20000, this.ctx.currentTime, on ? 0.05 : 0.15);
   }
 
   suspend(): void {

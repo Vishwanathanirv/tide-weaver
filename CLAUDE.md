@@ -8,10 +8,12 @@ Free browser game by coralctrl. Vanilla TypeScript + Vite, Canvas 2D, Web Audio.
 ## Layout
 - `src/physics.ts` fixed-step spirit physics (60 Hz, 2 sub-steps), landing grades, rings
 - `src/rules.ts` light, flow tiers, multiplier, kilometres, run end and its cause
-- `src/terrain.ts` analytic seeded hills, zones, ring placement
+- `src/terrain.ts` analytic seeded hills, biomes, per-chunk rings, gems, jets, trick rings, collapsing crests, spikes and gates (all seeded, timed by physics frame)
 - `src/render.ts` five skies blended by weight, particle pool, trail, camera
 - `src/audio.ts` procedural score: pad, rain, wind, four instruments, quantised notes; owns the AudioContext and the 88 BPM grid
 - `src/lofi.ts` lo-fi loop on the shared grid: keys and crackle always, hats at ×1.5, bass and snare at ×3.0 (LOCKED IN), water skim, bass meter
+- `src/surfer.ts` silhouette rider, energy board, 10-segment Verlet scarf (visual only)
+- `src/world.ts` drawing for gems, jets, caustics, spikes and tide gates
 - `src/juice.ts` hit-stop clock and callouts (clean, inches, skill issue); never changes physics results
 - `src/save.ts` dual-slot checksummed save vault, save codes
 - `src/main.ts` loop, input, UI panels, daily wave, auras, sharing

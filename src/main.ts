@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import "./style.css";
 import { Score, INSTRUMENTS } from "./audio";
 import { currentSpeed, makeEvents, makeSpirit, step, STEP, type Spirit } from "./physics";
@@ -5,7 +6,7 @@ import { Renderer, STYLES, STYLE_COUNT } from "./render";
 import { hashString, utcDay } from "./rng";
 import { makeRun, makeRunEvents, updateRun, TIERS, type Mode, type Run } from "./rules";
 import { AURAS, exportCode, importCode, Vault, type Aura, type KV, type SaveData, type Stats } from "./save";
-import { Terrain, ZONES } from "./terrain";
+import { Terrain, ZONES, BIOMES, biomeAt } from "./terrain";
 import { LoFi } from "./lofi";
 import { Juice } from "./juice";
 
@@ -93,6 +94,7 @@ ui.innerHTML = `
     <div class="flow"><span id="flow">0</span><span class="unit">flow</span></div>
     <div class="light" id="light" role="meter" aria-label="Light" aria-valuemin="0" aria-valuemax="100"><i id="light-fill"></i></div>
     <div class="mult" id="mult"></div>
+    <div class="chain" id="chain" aria-live="polite"></div>
     <div class="best" id="best"></div>
   </header>
   <nav class="controls" aria-label="Game">
@@ -114,6 +116,7 @@ const flowEl = $("flow");
 const lightEl = $("light");
 const lightFill = $("light-fill");
 const multEl = $("mult");
+const chainEl = $("chain");
 const bestEl = $("best");
 const hintEl = $("hint");
 const scrim = $("scrim");
@@ -146,6 +149,12 @@ let wasHolding = false;
 let started = false;
 let idle = 0;
 let peakTier = 0;
+let lastBiome = 0;
+/** Tricks since the last clean landing; they bank into the score when you land clean. */
+const chain: string[] = [];
+let chainPts = 0;
+/** Seconds until the run resets after a wipe-out (Geometry Dash style), or -1. */
+let respawn = -1;
 const weights = new Array(STYLE_COUNT).fill(0);
 weights[0] = 1;
 
@@ -153,7 +162,24 @@ weights[0] = 1;
 let tip = save.tutorialDone ? -1 : 0;
 let tipHold = 0;
 let tipTimer = 0;
-const TIPS = ["Hold on a downhill to dive", "Let go at the bottom to fly", "Land along a downhill for a Perfect", "Perfect dives and rings refill your light"];
+const TIPS = ["Hold on a downhill to dive", "Let go at the bottom to fly", "Land along a downhill for a Perfect", "Perfect dives and rings refill your light", "Hold in the air to backflip · let go to land flat"];
+const hazardsOn = () => mode !== "zen" && tip === -1;
+
+function addTrick(name: string, pts: number): void {
+  chain.push(name);
+  chainPts += pts;
+}
+
+function chainText(): string {
+  const out: string[] = [];
+  for (let i = 0; i < chain.length; ) {
+    let n = 1;
+    while (chain[i + n] === chain[i]) n++;
+    out.push(n > 1 ? `${chain[i]} ×${n}` : chain[i]);
+    i += n;
+  }
+  return out.join(" + ");
+}
 
 function bestFlow(): number {
   if (mode === "zen") return save.bestZen;
@@ -165,6 +191,11 @@ function newRun(): void {
   const seed = mode === "daily" ? hashString("daily:" + today) : hashString("seed:" + seedLabel);
   terrain = new Terrain(seed);
   spirit = makeSpirit(terrain);
+  if (import.meta.env.DEV && params.get("km")) {
+    // Dev only: start further out to inspect later biomes.
+    spirit.x = spirit.px = Number(params.get("km")) * 10000;
+    spirit.y = spirit.py = terrain.height(spirit.x) + 220;
+  }
   run = makeRun(mode, tip !== -1);
   clock = 0;
   over = false;
@@ -173,6 +204,10 @@ function newRun(): void {
   lastStyle = -1;
   passedBest = false;
   peakTier = 0;
+  lastBiome = 0;
+  chain.length = 0;
+  chainPts = 0;
+  respawn = -1;
   started = false;
   idle = 0;
   juice.reset();
@@ -689,7 +724,7 @@ function tick(dt: number): void {
   const hold = holding();
   if (hold && !wasHolding) score.whoosh(currentSpeed(spirit) / 1600);
   wasHolding = hold;
-  step(spirit, terrain, hold, ev, dt);
+  step(spirit, terrain, hold, ev, dt, hazardsOn());
   const dx = spirit.x - before;
   updateRun(run, spirit, ev, dx, dt, rev);
   clock += dt;
@@ -736,6 +771,56 @@ function tick(dt: number): void {
     renderer.popup(`+${fmt(250 * run.mult)}`, ev.ringX, ev.ringY);
     unlockAuras();
   }
+  if (ev.flips) addTrick(ev.flips === 1 ? "Backflip" : ev.flips === 2 ? "Double Backflip" : `${ev.flips}× Backflip`, 300 * ev.flips * ev.flips);
+  if (ev.ring) addTrick(ev.thread ? "Ring Thread" : "Ring", ev.thread ? 300 : 100);
+  if (ev.gem) {
+    addTrick("Gem", 200);
+    score.note(14, 1, 0.8);
+    renderer.fx.burst(ev.gemX, ev.gemY, 22, 300, [140, 255, 240], 0, 0.9);
+    renderer.popup("+400", ev.gemX, ev.gemY);
+  }
+  if (ev.plunge) {
+    score.splash();
+    renderer.fx.burst(spirit.x, ground, 30, 380, [180, 230, 255], 0, 0.8);
+    renderer.punchIn(0.04);
+  }
+  if (ev.breach) {
+    addTrick("Abyss Breach", 500);
+    score.note(11, 1, 0.9);
+    score.note(14, 1, 0.7, 1);
+    renderer.fx.burst(spirit.x, ground, 40, 520, [200, 240, 255], 0, 1);
+    renderer.pulse(spirit.x, ground, 1);
+    renderer.punchIn(0.06);
+  }
+  if (ev.landing === "perfect" || ev.landing === "good") {
+    if (chain.length) {
+      const bonus = Math.round(chainPts * (1 + 0.25 * (chain.length - 1)) * run.mult);
+      run.score += bonus;
+      renderer.popup(`+${fmt(bonus)}`, spirit.x, spirit.y + 30, true);
+      if (ev.flips >= 2 || chain.length >= 3) renderer.callout("unreal", "clean", spirit.x, spirit.y + 70, true);
+      chain.length = 0;
+      chainPts = 0;
+    }
+  } else if (ev.landing === "rough") {
+    chain.length = 0;
+    chainPts = 0;
+  }
+  const biome = biomeAt(spirit.x);
+  if (biome !== lastBiome) {
+    lastBiome = biome;
+    renderer.showBanner(BIOMES[biome]);
+  }
+  if (ev.crash && hazardsOn() && respawn < 0) {
+    renderer.shatter(spirit.x, spirit.y, [255, 210, 160]);
+    score.splash();
+    renderer.callout("skill issue", "skill", spirit.x, spirit.y, true);
+    recordBest();
+    const why = ev.crash === "spike" ? "on a crystal spike" : ev.crash === "gate" ? "into a tide gate" : "landing upside down";
+    toast(`Shattered ${why} · ${(spirit.distance / 10000).toFixed(2)} km`);
+    chain.length = 0;
+    chainPts = 0;
+    respawn = 0.1;
+  }
   // Module 2: dead-centre rings freeze the frame for 30 ms; callouts react to the move.
   const call = juice.react(ev, clock);
   if (juice.centreHit) {
@@ -772,11 +857,18 @@ function tick(dt: number): void {
   else if (tip === 2 && ev.landing === "perfect") {
     tip = mode === "zen" ? 4 : 3;
     tipTimer = 0;
+    tipTimer = 0;
   } else if (tip === 3) {
     tipTimer += dt;
-    if (tipTimer > 4.5) tip = 4;
+    if (tipTimer > 4.5) {
+      tip = 4;
+      tipTimer = 0;
+    }
+  } else if (tip === 4) {
+    tipTimer += dt;
+    if (ev.flips || tipTimer > 9) tip = 5;
   }
-  if (tip === 4) {
+  if (tip === 5) {
     tip = -1;
     save.tutorialDone = true;
     run.gentle = false;
@@ -832,10 +924,17 @@ function frame(now: number): void {
       acc = 0;
       clock += dt;
     }
+    if (respawn >= 0) {
+      respawn -= dt;
+      if (respawn < 0) {
+        newRun();
+        started = true;
+      }
+    }
     if (started && !holding()) idle += dt;
     else idle = 0;
     const simDt = juice.consume(dt);
-    acc += started ? simDt * scaleT : 0;
+    acc += started && respawn < 0 ? simDt * scaleT : 0;
     while (acc >= STEP && !paused) {
       tick(STEP);
       acc -= STEP;
@@ -869,6 +968,7 @@ function frame(now: number): void {
   } else if (change === "released") renderer.setCinema(false);
   lofi.skim(live && spirit.grounded, speed);
   renderer.setBass(lofi.bass());
+  score.setUnderwater(spirit.under && live);
   renderer.draw({
     spirit,
     alpha: paused ? 1 : acc / STEP,
@@ -883,7 +983,11 @@ function frame(now: number): void {
     light: mode === "zen" ? 1 : run.light,
     tier: run.tier,
     bestX: mode === "journey" && save.bestDistance > 2000 ? save.bestDistance : -1,
+    frame: spirit.frames,
+    hazardsLive: hazardsOn(),
   });
+  const ct = chain.length ? chainText() : "";
+  if (chainEl.textContent !== ct) chainEl.textContent = ct;
 
   const f = Math.floor(run.score);
   if (f !== shownFlow) {
