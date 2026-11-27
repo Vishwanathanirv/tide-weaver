@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/kon.svg" width="100%" alt="Tide-Weaver: surf endless twilight waves. A plush lion in a black robe, headphones and sunglasses.">
+</p>
+
 # Tide-Weaver
 
 Surf endless twilight waves as a paper-winged light spirit. Hold to dive down the slopes, let go to fly off the crests. Every dive, ring and apex plays a note, so every run composes its own song.
