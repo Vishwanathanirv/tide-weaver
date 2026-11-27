@@ -239,7 +239,9 @@ export class Renderer {
   private seaN = 0;
   private trail = new Float32Array(TRAIL_MAX * 2);
   private trailCap = 48;
-  private look: Look = { scarf: 1, surgeReady: false, surgeOn: 0, crouch: 0, lean: 0, arms: 0 };
+  private look: Look = { scarf: 1, surgeReady: false, surgeOn: 0, crouch: 0, lean: 0, arms: 0, flex: 0 };
+  private poseFlex = 0;
+  private prevVy = 0;
   /** Foam left on the crests you carved, and ring fragments floating on the water. */
   private foamX = new Float32Array(160);
   private foamAge = new Float32Array(160).fill(99);
@@ -1249,6 +1251,11 @@ export class Renderer {
     this.poseCrouch += (crouchT - this.poseCrouch) * pk;
     this.poseLean += (leanT - this.poseLean) * pk;
     this.poseArms += (armsT - this.poseArms) * pk;
+    // Vertical acceleration (troughs press the knees down, the apex floats them up), eased.
+    const ay = f.dt > 0 ? (s.vy - this.prevVy) / f.dt : 0;
+    this.prevVy = s.vy;
+    this.poseFlex += (clamp(ay / 1500, -1, 1) - this.poseFlex) * (1 - Math.exp(-f.dt * 10));
+    this.look.flex = this.poseFlex;
     this.look.crouch = this.poseCrouch;
     this.look.lean = this.poseLean;
     this.look.arms = this.poseArms;

@@ -37,6 +37,8 @@ export interface Run {
   gentle: boolean;
   /** Seconds since the player last pressed; set by the game each step. */
   idle: number;
+  /** Light Vessel: multiplier on the drain (1 = none). */
+  vessel: number;
 }
 
 export interface RunEvents {
@@ -47,8 +49,8 @@ export interface RunEvents {
   gain: number;
 }
 
-export function makeRun(mode: Mode, gentle = false): Run {
-  return { mode, light: 1, score: 0, mult: 1, tier: 0, smooth: 0, time: 0, nextKm: 1, roughRecent: 0, slowRecent: 0, ended: false, cause: "", gentle, idle: 0 };
+export function makeRun(mode: Mode, gentle = false, vessel = 1): Run {
+  return { mode, light: 1, score: 0, mult: 1, tier: 0, smooth: 0, time: 0, nextKm: 1, roughRecent: 0, slowRecent: 0, ended: false, cause: "", gentle, idle: 0, vessel };
 }
 
 export function makeRunEvents(): RunEvents {
@@ -117,6 +119,7 @@ export function updateRun(r: Run, s: Spirit, ev: StepEvents, dx: number, dt: num
   // The first-run grace never covers sitting still; idleness drains up to four times faster.
   if (r.gentle && lazy === 0) d *= 0.35;
   d *= 1 + 3 * lazy;
+  d *= r.vessel;
   r.light -= d;
   if (s.rail) r.light += 0.1 * dt;
   if (ev.landing === "perfect") r.light += 0.1 + Math.min(0.06, s.combo * 0.01);

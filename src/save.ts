@@ -3,7 +3,7 @@
  * half-written slot falls back to the other, and progress travels between devices or builds as a
  * copyable save code.
  */
-import { BOARD_IDS, SCARF_IDS } from "./gear";
+import { BOARD_IDS, SCARF_IDS, clampLevel, noUpgrades, type Upgrades } from "./gear";
 import { QUEST_IDS, deal, targetFor, type Counter, type Quest } from "./quests";
 
 export const AURAS = ["ember", "tide", "moth", "comet", "lotus", "prism", "starlight"] as const;
@@ -46,6 +46,8 @@ export interface SaveData {
   owned: string[];
   board: string;
   scarf: string;
+  /** Gem upgrade levels. */
+  up: Upgrades;
   /** Goal rank and the three active goals. */
   rank: number;
   quests: Quest[];
@@ -87,6 +89,7 @@ export function defaults(): SaveData {
     owned: ["wake", "plain"],
     board: "wake",
     scarf: "plain",
+    up: noUpgrades(),
     rank: 0,
     sky: -1,
     quests: deal(0),
@@ -131,6 +134,7 @@ export function sanitize(raw: unknown): SaveData {
   const aura = isAura(r.aura) && unlocked.includes(r.aura) ? r.aura : "ember";
   const ownedRaw = Array.isArray(r.owned) ? r.owned.filter((g): g is string => typeof g === "string") : [];
   const owned = [...new Set(["wake", "plain", ...ownedRaw.filter((g) => BOARD_IDS.includes(g) || SCARF_IDS.includes(g))])];
+  const upRaw = (r.up && typeof r.up === "object" ? r.up : {}) as Record<string, unknown>;
   const rank = Math.min(99, Math.floor(num(r.rank, 0)));
   const daily = r.daily && typeof r.daily === "object" ? (r.daily as Record<string, unknown>) : null;
   return {
@@ -163,6 +167,7 @@ export function sanitize(raw: unknown): SaveData {
     owned,
     board: owned.includes(String(r.board)) && BOARD_IDS.includes(String(r.board)) ? String(r.board) : "wake",
     scarf: owned.includes(String(r.scarf)) && SCARF_IDS.includes(String(r.scarf)) ? String(r.scarf) : "plain",
+    up: { vessel: clampLevel(upRaw.vessel), magnet: clampLevel(upRaw.magnet), core: clampLevel(upRaw.core) },
     rank,
     sky: typeof r.sky === "number" && Number.isInteger(r.sky) && r.sky >= -1 && r.sky <= 4 ? r.sky : -1,
     quests: cleanQuests(r.quests, rank),

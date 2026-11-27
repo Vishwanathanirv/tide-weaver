@@ -16,6 +16,8 @@ export interface Look {
   crouch: number;
   lean: number;
   arms: number;
+  /** -1..1 eased vertical acceleration: positive presses the knees down (troughs), negative extends them (jump apex). */
+  flex: number;
 }
 
 export class Surfer {
@@ -68,7 +70,7 @@ export class Surfer {
    * Draws the rider at screen (sx, sy). `angle` is the board angle in world space (counter-
    * clockwise); `size` scales the figure; `color` is the aura's rgb triple as a css rgb() body.
    */
-  draw(ctx: CanvasRenderingContext2D, sx: number, sy: number, angle: number, size: number, color: string, tuck: boolean, grounded: boolean, under: boolean, speed: number, dt: number, light: number, o: Look): void {
+  draw(ctx: CanvasRenderingContext2D, sx: number, sy: number, angle: number, size: number, color: string, tuck: boolean, _grounded: boolean, under: boolean, speed: number, dt: number, light: number, o: Look): void {
     const rot = -angle;
     const s = size / 10;
     // Scarf anchor: the rider's neck, rotated with the board.
@@ -127,28 +129,77 @@ export class Surfer {
       ctx.fillRect(gx - 6 * s, -2.4 * s, 12 * s, 4.8 * s);
     }
 
-    // The rider: crouched for speed, tucked tight in a flip.
-    // Posture: low on a dive, leaning back up a crest, arms flung out at the top of a jump.
+    // The rider: hooded, caped, boots fixed to the deck. Knees take the vertical acceleration.
     const cr = tuck ? 0 : o.crouch;
     const lean = tuck ? 0 : o.lean * -4;
     const arms = tuck ? 0 : o.arms;
-    const knee = (tuck ? 14 : grounded ? 9 : 7) + cr * 5;
-    const hip = tuck ? -10 : -14 + cr * 4;
-    const shoulder = tuck ? -18 : -24 + cr * 7;
+    const flex = tuck ? 0.5 : Math.max(-1, Math.min(1, o.flex));
+    const hip = (tuck ? -10 : -15 + cr * 4) + flex * 3.4;
+    const shoulder = tuck ? -18 : -25 + cr * 7 + flex * 2;
+    const BX = -6.5;
+    const FX = 6.5;
+    const hx = lean * 0.3;
+    const sxn = 1.5 + lean;
+    const hcx = 2.5 + lean;
+    const hcy = shoulder - 5.4;
+    const now = performance.now() / 1000;
+    const cs = Math.min(1.6, speed / 900);
+    // Cloak: from the shoulders, trailing opposite to travel; tail flutters, and drops with a compressed stance.
+    const tailX = (-14 - 20 * cs) * s;
+    const flutter = Math.sin(now * 9 + speed * 0.002) * (1.4 + 2.6 * cs) * s;
+    const tailY = (shoulder + 14 - flex * 3 - cr * 2) * s + flutter;
+    const mid2X = (-6 - 9 * cs) * s;
+    ctx.fillStyle = "#171226";
+    ctx.beginPath();
+    ctx.moveTo((sxn + 2.5) * s, (shoulder - 1) * s);
+    ctx.quadraticCurveTo(mid2X, (shoulder - 3) * s + flutter * 0.2, tailX, tailY - 5 * s);
+    ctx.lineTo(tailX - 1.5 * s, tailY + 4 * s);
+    ctx.quadraticCurveTo(mid2X + 2 * s, (hip + 3) * s, (hx - 1) * s, (hip + 2) * s);
+    ctx.lineTo((sxn - 3) * s, (shoulder + 1) * s);
+    ctx.closePath();
+    ctx.fill();
+    // Legs: two-bone IK from fixed boots up to the hip, knees pushed forward.
     ctx.strokeStyle = "#0c0a14";
     ctx.lineWidth = 4.2 * s;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const L1 = 8.2 * s;
+    const L2 = 8.2 * s;
     ctx.beginPath();
-    ctx.moveTo(-6 * s, -2 * s);
-    ctx.lineTo(-knee * 0.5 * s, (hip + 6) * s);
-    ctx.lineTo(-2 * s, hip * s);
-    ctx.moveTo(6 * s, -2 * s);
-    ctx.lineTo((knee * 0.6) * s, (hip + 5) * s);
-    ctx.lineTo(2 * s, hip * s);
+    for (let k = 0; k < 2; k++) {
+      const fx = (k === 0 ? BX : FX) * s;
+      const fy = -1.6 * s;
+      const hxx = (hx + (k === 0 ? -2 : 2)) * s;
+      const hyy = hip * s;
+      let dx = hxx - fx;
+      let dy = hyy - fy;
+      let d = Math.hypot(dx, dy);
+      const dMax = L1 + L2 - 0.2;
+      if (d > dMax) {
+        dx *= dMax / d;
+        dy *= dMax / d;
+        d = dMax;
+      }
+      const a = (d * d + L1 * L1 - L2 * L2) / (2 * d);
+      const hh = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+      const ux = dx / d;
+      const uy = dy / d;
+      const kx = fx + ux * a + uy * hh;
+      const ky = fy + uy * a - ux * hh;
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(kx, ky);
+      ctx.lineTo(fx + dx, fy + dy);
+    }
     ctx.stroke();
-    ctx.lineWidth = 5.2 * s;
+    // Boots, planted on the deck.
+    ctx.fillStyle = "#0c0a14";
+    ctx.fillRect((BX - 3) * s, -2.6 * s, 6.4 * s, 2.2 * s);
+    ctx.fillRect((FX - 3) * s, -2.6 * s, 6.4 * s, 2.2 * s);
+    // Torso, arms.
+    ctx.lineWidth = 5.4 * s;
     ctx.beginPath();
-    ctx.moveTo(0, hip * s);
-    ctx.lineTo((1.5 + lean) * s, shoulder * s);
+    ctx.moveTo(hx * s, hip * s);
+    ctx.lineTo(sxn * s, shoulder * s);
     ctx.stroke();
     ctx.lineWidth = 3.2 * s;
     ctx.beginPath();
@@ -156,22 +207,46 @@ export class Surfer {
       ctx.moveTo(1.5 * s, (shoulder + 2) * s);
       ctx.lineTo(7 * s, (hip + 2) * s);
     } else {
-      ctx.moveTo((1.5 + lean) * s, (shoulder + 2) * s);
+      ctx.moveTo(sxn * s, (shoulder + 2) * s);
       ctx.lineTo((-11 - 6 * arms) * s, (shoulder + 7 - 8 * arms) * s);
-      ctx.moveTo((1.5 + lean) * s, (shoulder + 2) * s);
+      ctx.moveTo(sxn * s, (shoulder + 2) * s);
       ctx.lineTo((13 + 6 * arms) * s, (shoulder + 5 - 7 * arms) * s);
     }
     ctx.stroke();
+    // Hood: a round cowl with a point swept back.
     ctx.fillStyle = "#0c0a14";
     ctx.beginPath();
-    ctx.arc((2.5 + lean) * s, (shoulder - 5) * s, 4.6 * s, 0, Math.PI * 2);
+    ctx.arc(hcx * s, hcy * s, 4.9 * s, 0, Math.PI * 2);
     ctx.fill();
-    // Rim light so the silhouette reads on dark skies.
-    ctx.strokeStyle = `rgba(${color},0.75)`;
-    ctx.lineWidth = 1.1 * s;
     ctx.beginPath();
-    ctx.arc((2.5 + lean) * s, (shoulder - 5) * s, 4.6 * s, -Math.PI * 0.9, -Math.PI * 0.1);
+    ctx.moveTo((hcx - 3.6) * s, (hcy - 3) * s);
+    ctx.quadraticCurveTo((hcx - 8) * s, (hcy - 2.4 + flutter / s * 0.15) * s, (hcx - 10.5 - 3 * cs) * s, (hcy + 2.6) * s + flutter * 0.3);
+    ctx.lineTo((hcx - 3.4) * s, (hcy + 3.6) * s);
+    ctx.closePath();
+    ctx.fill();
+    // Rim light, 2.2 px, along the top: hood, shoulder, cloak edge, board nose.
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(255,244,214,0.95)";
+    ctx.beginPath();
+    ctx.moveTo((hcx + 4.4) * s, (hcy + 1.4) * s);
+    ctx.arc(hcx * s, hcy * s, 4.9 * s, 0.25, -Math.PI * 1.05, true);
+    ctx.quadraticCurveTo((hcx - 8) * s, (hcy - 2.4) * s, (hcx - 10.5 - 3 * cs) * s, (hcy + 2.6) * s + flutter * 0.3);
     ctx.stroke();
+    ctx.strokeStyle = `rgba(${color},0.95)`;
+    ctx.beginPath();
+    ctx.moveTo((sxn + 5) * s, (shoulder + 1) * s);
+    ctx.lineTo((sxn + 1) * s, (shoulder - 1.4) * s);
+    ctx.lineTo((sxn - 2.5) * s, (shoulder - 0.6) * s);
+    ctx.quadraticCurveTo(mid2X, (shoulder - 3.4) * s + flutter * 0.2, tailX, tailY - 5 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(8 * s, -2.7 * s);
+    ctx.lineTo(17.5 * s, -0.4 * s);
+    ctx.stroke();
+    ctx.globalCompositeOperation = "source-over";
     ctx.restore();
   }
 }

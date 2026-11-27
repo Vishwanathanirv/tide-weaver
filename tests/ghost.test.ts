@@ -24,7 +24,7 @@ function play(seed: number, board: string, frames: number, hazards: boolean) {
   return { s, rec };
 }
 
-const ghostOf = (rec: Recorder, end: number, hazards: boolean, board: string, seed = 0): Ghost => ({ seed, hazards, board, score: 12345, end, frames: rec.frames.slice(), kinds: rec.kinds.slice() });
+const ghostOf = (rec: Recorder, end: number, hazards: boolean, board: string, seed = 0): Ghost => ({ seed, hazards, board, magnet: 0, core: 0, score: 12345, end, frames: rec.frames.slice(), kinds: rec.kinds.slice() });
 
 describe("ghost replay", () => {
   it("lands exactly where the recorded run did", () => {
@@ -76,12 +76,12 @@ describe("ghost codes", () => {
   });
 
   it("reject a code with trailing bytes or an unknown version", () => {
-    const g: Ghost = { seed: 123456, hazards: true, board: "wake", score: 10, end: 100, frames: [1, 5], kinds: [0, 1] };
+    const g: Ghost = { seed: 123456, hazards: true, board: "wake", magnet: 2, core: 3, score: 10, end: 100, frames: [1, 5], kinds: [0, 1] };
     const ok = encode(g);
     expect(decode(ok)).toEqual(g);
     expect(decode(ok + "AA")).toBeNull();
-    expect(decode("BA" + ok.slice(2))).toBeNull();
-    expect(decode("Ag" + ok.slice(2))).toBeNull();
+    expect(decode("Aw" + ok.slice(2))).toBeNull();
+    expect(decode("BQ" + ok.slice(2))).toBeNull();
     expect(decode("AQ" + ok.slice(2))).toBeNull();
   });
 

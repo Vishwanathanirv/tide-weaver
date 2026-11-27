@@ -47,3 +47,34 @@ export const SCARF_IDS = SCARVES.map((s) => s.id);
 
 export const boardOf = (id: string): Board => BOARDS.find((b) => b.id === id) ?? BOARDS[0];
 export const scarfOf = (id: string): Scarf => SCARVES.find((s) => s.id === id) ?? SCARVES[0];
+
+/** Gem upgrades, Lv 0 to MAX_LEVEL. Vessel feeds the run rules; Magnet and Core feed physics (and so ghosts). */
+export const MAX_LEVEL = 5;
+export type UpId = "vessel" | "magnet" | "core";
+export interface Upgrades {
+  vessel: number;
+  magnet: number;
+  core: number;
+}
+export interface Upgrade {
+  id: UpId;
+  name: string;
+  note: string;
+  /** Gem price of each level: index 0 buys Lv 1. */
+  price: readonly number[];
+}
+export const UPGRADES: readonly Upgrade[] = [
+  { id: "vessel", name: "Light Vessel", note: "Light drains 8% slower per level", price: [15, 30, 55, 85, 125] },
+  { id: "magnet", name: "Tide Magnet", note: "Wider ring pull, a little even outside Surge", price: [20, 35, 60, 90, 130] },
+  { id: "core", name: "Surge Core", note: "Faster Surge recharge, less light spent", price: [25, 40, 65, 95, 135] },
+];
+export const noUpgrades = (): Upgrades => ({ vessel: 0, magnet: 0, core: 0 });
+export const clampLevel = (n: unknown): number => (typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.min(MAX_LEVEL, Math.floor(n))) : 0);
+/** Light drain multiplier: Lv 5 lasts 40% longer. */
+export const drainOf = (vessel: number): number => 1 / (1 + 0.08 * clampLevel(vessel));
+/** Ring catch multiplier outside Surge; Surge keeps its own larger pull on top. */
+export const pullOf = (magnet: number): number => 1 + 0.07 * clampLevel(magnet);
+/** Surge recharge, seconds: 4.5 at Lv 0, about 2.8 at Lv 5. */
+export const surgeCoolOf = (core: number): number => 4.5 - 0.34 * clampLevel(core);
+/** Light a Surge costs (fraction of the bar). */
+export const surgeCostOf = (core: number): number => 0.12 * (1 - 0.16 * clampLevel(core));

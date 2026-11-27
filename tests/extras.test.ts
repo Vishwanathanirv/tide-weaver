@@ -89,7 +89,7 @@ describe("boards with their own trails", () => {
         step(s, t, hold, ev, STEP, true);
         if (ev.crash) break;
       }
-      const g = decode(encode({ seed, hazards: true, board: id, score: 100, end: s.frames, frames: rec.frames, kinds: rec.kinds }))!;
+      const g = decode(encode({ seed, hazards: true, board: id, magnet: 0, core: 0, score: 100, end: s.frames, frames: rec.frames, kinds: rec.kinds }))!;
       expect(g.board).toBe(id);
       const r = new Replay(g, seed);
       r.advance(100000);

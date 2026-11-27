@@ -103,6 +103,9 @@ export interface Spirit {
   flip: number;
   /** Ring catch radius multiplier from the worn board. */
   reach: number;
+  /** Gem upgrades: ring pull multiplier and Surge recharge in seconds. */
+  pull: number;
+  cool: number;
   /** The sky-rail being ground, and the short cooldown after leaving one. */
   rail: Rail | null;
   railCd: number;
@@ -136,13 +139,13 @@ export function surge(s: Spirit): boolean {
     s.vy += 140;
   }
   s.surge = SURGE_TIME;
-  s.surgeCd = SURGE_COOLDOWN;
+  s.surgeCd = s.cool;
   return true;
 }
 
-export function makeSpirit(terrain: Terrain, dive = DIVE, flip = FLIP_RATE, reach = 1): Spirit {
+export function makeSpirit(terrain: Terrain, dive = DIVE, flip = FLIP_RATE, reach = 1, pull = 1, cool = SURGE_COOLDOWN): Spirit {
   const y = terrain.height(0) + 220;
-  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach, rail: null, railCd: 0, whirl: null, whirlT: 0, whirlSpeed: 0, whirlCd: 0, bless: 0, chainId: -1, chainN: 0 };
+  return { x: 0, y, vx: 440, vy: 0, px: 0, py: y, grounded: false, under: false, speed: 440, angle: 0, airRot: 0, holdAir: 0, combo: 0, bestCombo: 0, airTime: 0, maxAlt: 0, flow: 0, perfects: 0, ringsTaken: 0, gems: 0, distance: 0, frames: 0, surge: 0, surgeCd: 0, dive, flip, reach, pull, cool, rail: null, railCd: 0, whirl: null, whirlT: 0, whirlSpeed: 0, whirlCd: 0, bless: 0, chainId: -1, chainN: 0 };
 }
 
 export function makeEvents(): StepEvents {
@@ -470,7 +473,7 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
         hy = a < b ? r.y + off : r.y - off;
       } else d2 = ringDist2(s, r.x, r.y, dx, dy, len2);
       if (d2 < r.closest) r.closest = d2;
-      const catchR = (s.surge > 0 ? rr * SURGE_MAGNET : rr) * s.reach * (s.bless > 0 ? 1.5 : 1);
+      const catchR = (s.surge > 0 ? rr * SURGE_MAGNET : rr) * s.reach * s.pull * (s.bless > 0 ? 1.5 : 1);
       if (d2 < catchR * catchR) {
         r.taken = true;
         s.ringsTaken++;
@@ -519,7 +522,8 @@ export function step(s: Spirit, t: Terrain, holding: boolean, ev: StepEvents, dt
         if (gm.taken) continue;
         const gx = gm.x - s.x;
         const gy = gm.y - s.y;
-        if (gx * gx + gy * gy < 46 * 46) {
+        const gr = 46 * s.pull * (s.surge > 0 ? 1.5 : 1);
+        if (gx * gx + gy * gy < gr * gr) {
           gm.taken = true;
           s.gems++;
           ev.gem++;

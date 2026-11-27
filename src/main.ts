@@ -11,7 +11,7 @@ import { ECLIPSE_FROM, ECLIPSE_TO, eclipseK, lagoonFog, stormK } from "./events"
 import { TIDE_AT, tideState, tideX } from "./tide";
 import { LoFi } from "./lofi";
 import { Juice } from "./juice";
-import { BOARDS, SCARVES, boardOf, scarfOf } from "./gear";
+import { BOARDS, MAX_LEVEL, SCARVES, UPGRADES, boardOf, drainOf, pullOf, scarfOf, surgeCoolOf, surgeCostOf } from "./gear";
 import { GEMS_PER_GOAL, GEMS_PER_RANK, allDone, check, deal, emptyCounters, questText, type Counters } from "./quests";
 import { Recorder, Replay, decode, encode, type Ghost } from "./ghost";
 import { ClipRecorder, clipsSupported } from "./clip";
@@ -232,6 +232,7 @@ let railHinted = false;
 let counters: Counters = emptyCounters();
 /** Everything needed to replay this run as someone else's ghost. */
 const rec = new Recorder();
+let runUp = { magnet: 0, core: 0 };
 let recValid = false;
 let runBoard = save.board;
 let runSeed = 0;
@@ -288,7 +289,8 @@ function newRun(retry = false): void {
   const board = boardOf(save.board);
   runBoard = board.id;
   boardFx = board.fx;
-  spirit = makeSpirit(terrain, board.dive, board.flip, board.reach);
+  spirit = makeSpirit(terrain, board.dive, board.flip, board.reach, pullOf(save.up.magnet), surgeCoolOf(save.up.core));
+  runUp = { magnet: save.up.magnet, core: save.up.core };
   if (import.meta.env.DEV && params.get("km")) {
     // Dev only: start further out to inspect later biomes.
     spirit.x = spirit.px = Number(params.get("km")) * 10000;
@@ -296,7 +298,7 @@ function newRun(retry = false): void {
   }
   // Dev only: ?streak=N starts with that streak, to look at the dolphins.
   if (import.meta.env.DEV && params.get("streak")) spirit.combo = Number(params.get("streak"));
-  run = makeRun(mode, tip !== -1);
+  run = makeRun(mode, tip !== -1, drainOf(save.up.vessel));
   counters = emptyCounters();
   rec.reset();
   // A run can only be replayed if its hazards were the same from the first press to the last.
@@ -476,7 +478,7 @@ function surgeNow(): void {
   if (!surge(spirit)) return;
   if (recValid) rec.surge(spirit.frames);
   counters.surge++;
-  if (mode !== "zen") run.light = Math.max(0, run.light - 0.12);
+  if (mode !== "zen") run.light = Math.max(0, run.light - surgeCostOf(save.up.core));
   save.stats.surges++;
   score.surge();
   renderer.kick(0.3);
@@ -605,7 +607,7 @@ function ghostCode(): string | null {
   if (!recValid || rec.length === 0) return null;
   let end = endFrame >= 0 ? endFrame : spirit.frames;
   if (rec.full) end = Math.min(end, rec.lastFrame + 120);
-  return encode({ seed: runSeed, hazards: mode !== "zen", board: runBoard, score: Math.floor(run.score), end, frames: rec.frames, kinds: rec.kinds });
+  return encode({ seed: runSeed, hazards: mode !== "zen", board: runBoard, magnet: runUp.magnet, core: runUp.core, score: Math.floor(run.score), end, frames: rec.frames, kinds: rec.kinds });
 }
 
 /** The link includes the ghost, so whoever opens it races this run. */
@@ -770,10 +772,21 @@ function gearCard(kind: "board" | "scarf", id: string, name: string, note: strin
   return `<button class="aura ${worn ? "on" : ""}" data-gear="${kind}:${id}" aria-pressed="${worn}" ${can ? "" : "data-poor"}><i class="swatch sw-${kind}" aria-hidden="true"></i><b>${name}</b><span>${note} · ${status}</span></button>`;
 }
 
+function upgradeCard(u: (typeof UPGRADES)[number]): string {
+  const lv = save.up[u.id];
+  const maxed = lv >= MAX_LEVEL;
+  const price = maxed ? 0 : u.price[lv];
+  const pips = "●".repeat(lv) + "○".repeat(MAX_LEVEL - lv);
+  const status = maxed ? "Maxed" : `Lv ${lv + 1} · ${price} gems`;
+  return `<button class="aura ${maxed ? "on" : ""}" data-up="${u.id}" ${maxed || save.bank >= price ? "" : "data-poor"}><i class="swatch sw-board" aria-hidden="true"></i><b>${u.name} <span class="pips">${pips}</span></b><span>${u.note} · ${status}</span></button>`;
+}
+
 function openWorkshop(): void {
   openPanel(`
     <h2 id="panel-title">Workshop</h2>
     ${gemsLine()}
+    <h3>Upgrades</h3>
+    <div class="auras">${UPGRADES.map(upgradeCard).join("")}</div>
     <h3>Boards</h3>
     <div class="auras">${BOARDS.map((b) => gearCard("board", b.id, b.name, b.note, b.price)).join("")}</div>
     <h3>Scarves</h3>
@@ -897,6 +910,23 @@ function switchMode(m: Mode): void {
 panel.addEventListener("click", async (e) => {
   const t = (e.target as HTMLElement).closest("button");
   if (!t) return;
+  const upId = t.dataset.up as keyof typeof save.up | undefined;
+  if (upId) {
+    const u = UPGRADES.find((x) => x.id === upId);
+    const lv = u ? save.up[upId] : MAX_LEVEL;
+    if (u && lv < MAX_LEVEL) {
+      const price = u.price[lv];
+      if (save.bank < price) toast(`${price - save.bank} more gems needed`);
+      else {
+        save.bank -= price;
+        save.up[upId] = lv + 1;
+        persist();
+        toast(`${u.name} Lv ${lv + 1}`);
+      }
+    }
+    openWorkshop();
+    return;
+  }
   const gear = t.dataset.gear;
   if (gear) {
     const [kind, id] = gear.split(":");
