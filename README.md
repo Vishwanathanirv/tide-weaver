@@ -2,7 +2,7 @@
 
 Surf endless twilight waves as a paper-winged light spirit. Hold to dive down the slopes, let go to fly off the crests. Every dive, ring and apex plays a note, so every run composes its own song.
 
-A coralctrl game. Free, in the browser, no sign-up.
+A coralctrl game. Free, in the browser, no sign-up. Play: https://tide-weaver.vishwanathanirv.workers.dev/
 
 ## Play
 
